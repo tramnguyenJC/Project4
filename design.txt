@@ -19,6 +19,8 @@ Client:
 
 Server:
 
+    - command line args: port, (might want to specify the log file)
+
     - set up connections
 
     - accept connections
@@ -88,15 +90,44 @@ Client information:
 store client information, then add to file after connection is terminated
 identify clients by IP address
 
-Lock ideas:
-    - create a lock-indicator file that indicates the file is open?
-    - boolean flag indicating that the file is open
+Store information about what requests the client makes and what files the
+client has based on the information the server has (probably just add to
+a list with every PULL request the client makes)
+    - it's easy to just append with a log, but keeping a running list of
+      files is going to be a little more involved
+
+Lock: boolean flag indicating that the file is open
 
 
-pthreads(): use a single port instead of multiple ports
+pthreads(): uses a single port instead of multiple ports, makes clients simpler
+and hides details that they don't really need to know
 
 
 Questions:
 ----------
-What should we store for client information? A log of all the commands or what?
 WHY?
+
+
+Things to think about:
+----------------------
+Do we want to just assume that the music is in the same directory as the client/server
+or should we make that a command line argument to them?
+
+It seems inefficient to send a LIST request for every SYNC/DIFF command on the client side,
+especially if they had just been done -- though, of course, we don't want to have the SYNC
+command operating on old information. Should we just always send a LIST request when the
+user wants to sync files? Maybe just set a time period and keep track of the last time
+the client requested an update list? Or just set a flag for whether a LIST request has
+been made (whether by the user or in executing another command)?
+
+I do kind of wonder about the merits of clients having persistent IDs rather than going
+by IP addresses. Then again, where would these be stored between runs?
+
+For detecting whether files are the same, we may just want to flag this in LIST (and maybe
+DIFF as well) -- so when listing the file, list its name on the server and make a parenthetical
+note that this file has the same contents as whichever file on the client side. We may also want
+to consider asking if the user wants to rename the file (on the client or the server?).
+
+Maybe the client should keep a running array of the files it has? It would be kind of a pain
+to have to add to it when syncing files, but it means we wouldn't have to rehash them with
+each DIFF request.
