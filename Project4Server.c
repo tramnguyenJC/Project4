@@ -14,16 +14,16 @@ boolean log_file_open = false;
 void list( int client_sock );
 
 /* Sends the given client the files that correspond to the file names
- * specified in the packet. The packet will contain one or more file_name
- * structures, the number of which is specified in length.
+ * specified by the client. Reads in the entries from the client socket
+ * and responds with the specified files. The length describes the number
+ * of file requests in the client message (as specified by the header).
  */
-void send_files( int client_sock, int length, unsigned char* request );
+void send_files( int client_sock, int length );
 
-/* Saves the files in the packet to the server's current directory.
- * The packet will contain length push_file structures, each followed
- * by the data of the file to be written.
+/* Reads in length push_file structs and corresponding files from the client
+ * and writes them to the server's directory.
  */
-void write_files( int client_sock, int length, unsigned char* packet );
+void write_files( int client_sock, int length );
 
 /* Handles requests from a client and keeps log information. Once the
  * client ends the connection, the log information is written to the
@@ -121,13 +121,10 @@ int main( int argc, char* argv[] )
 
 void list( int client_sock )
 {
-    // print current operation
-    printf( "processing LIST command\n" );
-
-
     // get number of music files in current directory
     FILE* pipe = popen( "find -maxdepth 1 -iname '*.mp3' | wc -l", "r" );
     char num[ 10 ];
+    memset( num, 0, 10 );
 
     fgets( num, 10, pipe );
     int num_files = atoi( num );
@@ -206,13 +203,143 @@ void list( int client_sock )
 }
 
 
+void send_files( int client_sock, int length )
+{
+    // get file names
+    struct file_name files[ length ];
+
+    if ( recv( client_sock, files, length * sizeof( struct file_name ), 0 ) < 0 )
+    {
+        fprintf( stderr, "recv() failed\n" );
+        close( client_sock );
+        exit(1);
+    }
+
+
+    // struct for each file
+    struct push_file file_sizes[ length ];
+
+    // keeps track of total size of packet
+    size_t packet_size = sizeof( struct header );
+
+
+
+    // get the size of each requested file that is found
+    int file_found_count = 0;
+
+    int i;
+    for ( i = 0; i < length; ++i )
+    {
+        // get the size of this file
+        // command: find -iname '$[filename]' -printf '%b\n'
+
+        size_t name_len = strlen( files[file_found_count].filename );
+        size_t command_len = strlen( "find -iname '" );
+        size_t options_len = strlen( "' -printf '%s\n'" );
+
+        size_t len = command_len + name_len + options_len;
+
+        // copy command and filename for call
+        char command[ len + 1 ];
+
+        strncpy( command, "find -iname '", command_len );
+        strncpy( command, files[file_found_count].filename, name_len );
+        strncpy( command, "' -printf '%s\n'", options_len );
+
+        command[ len ] = '\0';
+
+
+        // gets size of file (in bytes)
+        FILE* pipe = popen( command, "r" );
+
+        char num[10];
+        memset( num, 0, 10 );
+
+        fgets( num, 10, pipe );
+        pclose( pipe );
+
+
+        unsigned int size = strtoul( num, 0, 10 );
+
+        // atoi returns 0 from an empty string, so
+        // zero indicates the file wasn't found
+        if ( size != 0 )
+        {
+            // copy file name and size
+            strncpy( file_sizes[file_found_count].name, files[file_found_count].filename, name_len );
+            file_sizes[ file_found_count ].size = size;
+
+
+            // update packet size to account for this file
+            packet_size += sizeof( struct push_file );
+            packet_size += file_sizes[file_found_count].size;
+
+            ++file_found_count;
+        }
+    }
+
+
+
+    // construct response message
+    unsigned char packet[ packet_size ];
+    memset( packet, 0, packet_size );
+
+
+    // create header and copy to message
+    struct header push_header;
+    memcpy( push_header.type, "PUSH", 4 );
+    push_header.length = file_found_count;
+
+    memcpy( packet, &push_header, sizeof( struct header ) );
+
+
+    // pointer to current position in message
+    int current_index = sizeof( struct header );
+
+    // copy requested files to message
+    for ( i = 0; i < file_found_count; ++i )
+    {
+        // copy file information first
+        memcpy( &packet[ current_index ], &file_sizes[i], sizeof( struct push_file ) );
+
+
+        current_index += sizeof( struct push_file );
+
+        // then read in contents of file
+        FILE* file = fopen( file_sizes[i].name, "r" );
+
+        unsigned char buffer[ file_sizes[i].size ];
+
+        fread( buffer, 1, file_sizes[i].size, file );
+
+        fclose( file );
+
+
+        // copy contents of file to message
+        memcpy( &packet[ current_index ], buffer, file_sizes[i].size );
+
+        current_index += file_sizes[i].size;
+    }
+
+
+
+    // send message to client
+    if( send( client_sock, packet, packet_size, 0 ) != packet_size )
+    {
+        fprintf( stderr, "send() failed\n" );
+        close( client_sock );
+        exit(1);
+    }
+}
+
+
 void* threadMain( void* thread_arg )
 {
     int client_sock = *( (int*) thread_arg );
 
     pthread_t threadID = pthread_self();
 
-    // variables for keeping track of client activity
+    // TODO: variables for keeping track of client activity
     // need to keep client IP address
     // commands sent from client
     // a list of the files the server receives
@@ -221,18 +348,80 @@ void* threadMain( void* thread_arg )
     // deallocates thread resources
     pthread_detach( threadID );
 
+    // keeps track of whether the client has requested to close the connection
+    boolean connection_closed = false;
+
     // wait for client message
+    while ( ! connection_closed )
+    {
+        size_t header_len = sizeof( struct header );
+        unsigned char buffer[ header_len ];
 
-    // determine type of message and send to corresponding function
-    // print thread ID (to precede message printed from called function)
-    printf( "thread %lu ", (unsigned long int) threadID );
+        // first just read in the header to check message type
+        if ( recv( client_sock, buffer, header_len, 0 ) < 0 )
+        {
+            fprintf( stderr, "recv() failed\n" );
+            close( client_sock );
+            exit(1);
+        }
+
+        // copy header into struct for parsing
+        struct header request_header;
+        memcpy( &request_header, buffer, header_len );
 
 
+        // print thread ID (to precede message specifying next action)
+        printf( "thread %lu: ", (unsigned long int) threadID );
+
+
+        // determine type of message and send to corresponding function
+        if ( strcmp( request_header.type, "LIST" ) == 0 )
+        {
+            // request for a list of the server's files
+            printf( "processing LIST request\n" );
+            list( client_sock );
+        }
+        else if (  strcmp( request_header.type, "PULL" ) == 0 )
+        {
+            // request for the server to transmit specified files
+            printf( "processing PULL request\n" );
+            send_files( client_sock, request_header.length );
+
+            // TODO: add files sent to the list of what the client has
+        }
+        else if ( strcmp( request_header.type, "PUSH" ) == 0 )
+        {
+            // packet contains files to write to server's directory
+            printf( "receiving files from client\n" );
+            write_files( client_sock, request_header.length );
+
+            // TODO: add files read in to the list of what the client has
+        }
+        else if ( strcmp( request_header.type, "BYE!" ) == 0 )
+        {
+            // request to close connection
+            printf( "closing connection\n" );
+            connection_closed = true;
+
+            close( client_sock );
+        }
+    }
+
+
+    // TODO: write client data to log file
     // check if log file is open in another thread
     if ( !log_file_open )
     {
         // if not, open and add activity information for this client
+
+        // if so, wait and try again until it is free
     }
 
     return NULL;
+}
+
+
+void write_files( int client_sock, int length )
+{
+
 }

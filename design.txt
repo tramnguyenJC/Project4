@@ -98,6 +98,8 @@ a list with every PULL request the client makes)
 
 Lock: boolean flag indicating that the file is open
 
+Need to determine how we're going to store all of this.
+
 
 pthreads(): uses a single port instead of multiple ports, makes clients simpler
 and hides details that they don't really need to know
@@ -131,3 +133,11 @@ to consider asking if the user wants to rename the file (on the client or the se
 Maybe the client should keep a running array of the files it has? It would be kind of a pain
 to have to add to it when syncing files, but it means we wouldn't have to rehash them with
 each DIFF request.
+
+I'm also wondering about the merits of having end-of-message indicators and maybe indicators between
+files. We have the exact size of each message in the header, so this isn't strictly necessary, but
+it strikes me as something that may be useful.
+
+Merits of LIST detecting whether a SYNC is ongoing? On one hand, it would make sure that LIST gets
+the most updated information possible, but then it could also make it really slow, and it would be
+pretty difficult to ensure that the SYNC is finished.
