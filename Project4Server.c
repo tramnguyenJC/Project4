@@ -1,11 +1,9 @@
 #include "Project4Header.h"
 #include <pthread.h>
 
-
 // tracks whether a thread is currently writing the log file
 // that contains information about each client
 boolean log_file_open = false;
-
 
 /* Sends the given client a list
  * of .mp3 files in the server's
@@ -30,7 +28,6 @@ void write_files( int client_sock, int length );
  * server's log file.
  */
 void* threadMain( void* thread_arg );
-
 
 
 int main( int argc, char* argv[] )
@@ -131,7 +128,6 @@ void list( int client_sock )
 
     pclose( pipe );
 
-
     size_t file_count = 0;
     struct file_name files[ num_files ];
 
@@ -165,8 +161,6 @@ void list( int client_sock )
 
     pclose( pipe );
 
-
-
     // create a packet from the list of music files
     struct header response_header;
     response_header.length = num_files;
@@ -176,7 +170,6 @@ void list( int client_sock )
 
     struct file_name files_list[ file_count ];
     memset( files_list, 0, sizeof( struct file_name ) * file_count );
-
 
     // copy header and file names into buffer
     size_t header_len = sizeof( struct header );

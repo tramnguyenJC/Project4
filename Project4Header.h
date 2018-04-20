@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <errno.h>
 
+
 #define SERVER_HOST "141.166.207.144"  /* wallis IP address */
 #define SERVER_PORT "35001"
 
@@ -52,8 +53,6 @@ struct push_file
     char name[ 255 ];
 };
 
-
-
 /* Computes and returns the SHA256 hash of the file in the current
  * directory with name filename.
  * Returns a pointer to a char array that represents the string of
@@ -75,7 +74,7 @@ char* computeHash( char* filename )
     command[ command_len ] = '\0';
 
     // hash will always be 64 chars
-    char* hash_str = malloc( 64 );
+    char* hash_str = (char*) malloc( 64 );
 
     // get hash of file i
     FILE* hash_pipe = popen( command, "r" );
