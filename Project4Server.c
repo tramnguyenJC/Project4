@@ -35,7 +35,7 @@ int main( int argc, char* argv[] )
     unsigned short port;
 
     // parse arguments to get port
-    if ( argc != 2 )
+    if ( argc != 3 )
     {
         fprintf( stderr, "Usage: ./Project4Server -p [port]\n" );
         exit(1);
@@ -71,7 +71,7 @@ int main( int argc, char* argv[] )
 
 
     // bind socket
-    if ( bind( sock, (struct sockaddr*) &server_addr, sizeof( server_addr ) ) < 0 )
+    if ( (bind( sock, (struct sockaddr*) &server_addr, sizeof( server_addr ))) < 0 )
     {
         fprintf( stderr, "binding socket failed\n" );
         exit(1);
@@ -161,16 +161,17 @@ void list( int client_sock )
 
     pclose( pipe );
 
+		cout << "Num files found: " << file_count << endl;
     // create a packet from the list of music files
     struct header response_header;
     response_header.length = num_files;
 
-    char* msg_type = "LIST";
+    const char* msg_type = "LIST";
     memcpy( &(response_header.type), msg_type, 4 );
 
     struct file_name files_list[ file_count ];
     memset( files_list, 0, sizeof( struct file_name ) * file_count );
-
+		memcpy( files_list, &files, sizeof( struct file_name ) * file_count);
     // copy header and file names into buffer
     size_t header_len = sizeof( struct header );
     size_t data_len = sizeof( struct file_name ) * num_files;
@@ -214,8 +215,6 @@ void send_files( int client_sock, int length )
 
     // keeps track of total size of packet
     size_t packet_size = sizeof( struct header );
-
-
 
     // get the size of each requested file that is found
     int file_found_count = 0;
@@ -270,8 +269,6 @@ void send_files( int client_sock, int length )
             ++file_found_count;
         }
     }
-
-
 
     // construct response message
     unsigned char packet[ packet_size ];
