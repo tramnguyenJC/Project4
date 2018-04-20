@@ -365,13 +365,13 @@ void* threadMain( void* thread_arg )
 
 
         // determine type of message and send to corresponding function
-        if ( strcmp( request_header.type, "LIST" ) == 0 )
+        if ( strncmp( request_header.type, "LIST", 4 ) == 0 )
         {
             // request for a list of the server's files
             printf( "processing LIST request\n" );
             list( client_sock );
         }
-        else if (  strcmp( request_header.type, "PULL" ) == 0 )
+        else if (  strncmp( request_header.type, "PULL", 4 ) == 0 )
         {
             // request for the server to transmit specified files
             printf( "processing PULL request\n" );
@@ -379,7 +379,7 @@ void* threadMain( void* thread_arg )
 
             // TODO: add files sent to the list of what the client has
         }
-        else if ( strcmp( request_header.type, "PUSH" ) == 0 )
+        else if ( strncmp( request_header.type, "PUSH", 4 ) == 0 )
         {
             // packet contains files to write to server's directory
             printf( "receiving files from client\n" );
@@ -387,7 +387,7 @@ void* threadMain( void* thread_arg )
 
             // TODO: add files read in to the list of what the client has
         }
-        else if ( strcmp( request_header.type, "BYE!" ) == 0 )
+        else if ( strncmp( request_header.type, "BYE!", 4 ) == 0 )
         {
             // request to close connection
             printf( "closing connection\n" );
@@ -413,5 +413,58 @@ void* threadMain( void* thread_arg )
 
 void write_files( int client_sock, int length )
 {
+    // get files from client
+    int i;
+    for ( i = 0; i < length; ++i )
+    {
+        struct push_file prefix;
 
+        // read in file prefix with name and size
+        if ( recv( client_sock, &prefix, sizeof( struct push_file ), 0 ) < 0 )
+        {
+            fprintf( stderr, "recv() failed\n" );
+            close( client_sock );
+            exit(1);
+        }
+
+
+        // read in contents of file
+        unsigned char file_bytes[ prefix.size ];
+        memset( file_bytes, 0, prefix.size );
+
+        if ( recv( client_sock, file_bytes, prefix.size, 0 ) < 0 )
+        {
+            fprintf( stderr, "recv() failed\n" );
+            close( client_sock );
+            exit(1);
+        }
+
+
+        // create file using filename
+        // adding .part suffix at first
+        // to avoid including incomplete files in a LIST request
+
+        size_t file_name_len = strlen( prefix.name );
+
+        // add 6 to accommodate ".part" suffix and \0
+        char new_file_name[ file_name_len + 6 ];
+
+        // copy file name and suffix
+        strncpy( new_file_name, prefix.name, file_name_len );
+        strncpy( &new_file_name[ file_name_len ], ".part", 5 );
+
+        new_file_name[ file_name_len + 5 ] = '\0';
+
+
+        // create file
+        FILE* new_file = fopen( new_file_name, "w" );
+
+        // write bytes to file
+        fwrite( file_bytes, 1, prefix.size, new_file );
+
+        fclose( new_file );
+
+        // rename to remove .part once the entire file is written
+        rename( new_file_name, prefix.name );
+    }
 }
