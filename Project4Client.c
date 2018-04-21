@@ -34,6 +34,12 @@ void leave(int sock);
 // Choose structure hashmap for easier look up (O(1) instead of O(n))
 std::unordered_map<std::string, std::string> getFilesOnClient();
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Retrieves all file names currently on server
+// @return: a char buffer of size[sizeof(file_name)*file_counts + 4], with the 
+// first 4 bytes as the number of file names returned.
+unsigned char* getFilenamesOnServer(int sock);
+
 int main (int argc, char *argv[]) {
 
   const char *serverHost = SERVER_HOST;   //< Default server host
@@ -106,7 +112,6 @@ int main (int argc, char *argv[]) {
       printInstructions();
     }
   }
-
 }
 
 unsigned long ResolveName(const char name[]) {
@@ -119,21 +124,14 @@ unsigned long ResolveName(const char name[]) {
   return *((unsigned long *) host->h_addr_list[0]);
 }
 
-void printInstructions(){
-  printf("Enter \'list\' to list all the files the server has.\n");
-  printf("Enter \'diff\' to show a \"diff\" of the files you have in comparison to the server \n");
-  printf("Enter \'sync\' to sync to your device files on the server and vice versa.\n");
-  printf("Enter \'bye!\' to leave the program.\n");
-}
-
-void list(int sock){
-  struct header request_header;
+unsigned char* getFilenamesOnServer(int sock){
+	struct header request_header;
   request_header.length = 0;
   const char* msg_type = "LIST";
   memcpy( &(request_header.type), msg_type, 4 );
 
   // Send a request with no data, only header
-  size_t header_len = sizeof(struct header);
+  int header_len = sizeof(struct header);
   unsigned char packet[ header_len ];
   memcpy( packet, &request_header, header_len);
 
@@ -155,24 +153,38 @@ void list(int sock){
   memcpy( &response_header, headerBuffer, header_len);
   int num_files = response_header.length;
 
+  // Continue receiving data from the server ad store data into dataBuffer
+  size_t data_len = sizeof( struct file_name ) * num_files;
+  unsigned char* dataBuffer = (unsigned char*) malloc(data_len + 4);
+  memset(dataBuffer, 0, data_len + 4);
+  memcpy(dataBuffer, &num_files, 4);
+  if((recv(sock, &dataBuffer[4], data_len, 0)) <= 0) {
+    printf("recv() failed or connection closed prematurely.\n");
+    exit(1);
+  }
+  return dataBuffer;
+}
+
+void printInstructions(){
+  printf("Enter \'list\' to list all the files the server has.\n");
+  printf("Enter \'diff\' to show a \"diff\" of the files you have in comparison to the server \n");
+  printf("Enter \'sync\' to sync to your device files on the server and vice versa.\n");
+  printf("Enter \'bye!\' to leave the program.\n");
+}
+
+void list(int sock){
+	unsigned char* dataBuffer = getFilenamesOnServer(sock);
+	int num_files;
+	memcpy(&num_files, dataBuffer, 4);
+	struct file_name files[sizeof(file_name)*num_files];
+	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
+
   // If the server sends no files
   if(num_files == 0){
     printf("Server has no file. \n");
     return;
   }
-
-  struct file_name files[ num_files ];
-
-  // Continue receiving data from the server ad store data into dataBuffer
-  size_t data_len = sizeof( struct file_name ) * num_files;
-  unsigned char dataBuffer[data_len];
-  if((recv(sock, dataBuffer, data_len, 0)) <= 0) {
-    printf("recv() failed or connection closed prematurely.\n");
-    exit(1);
-  }
-
-  memcpy(&files, dataBuffer, sizeof(struct file_name));
-
+  
   // Retrieve a hashmap of <hash, filename> for files on the client side
   std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
 
@@ -181,7 +193,6 @@ void list(int sock){
 
     // Store appropriate data into a file_name struct for each file name
     struct file_name file = files[i];
-    memcpy(&file, &dataBuffer[i*sizeof(struct file_name)], sizeof(struct file_name));
     
     // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
@@ -192,10 +203,45 @@ void list(int sock){
     else
       printf("File: %s (duplicate content with %s) \n", file.filename, search->second.c_str());
   }
+  free(dataBuffer);
 }
 
 void diff(int sock){
+  unsigned char* dataBuffer = getFilenamesOnServer(sock);
+	int num_files;
+	memcpy(&num_files, dataBuffer, 4);
+	struct file_name files[sizeof(file_name)*num_files];
+	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
+  free(dataBuffer);
   
+  // Retrieve a hashmap of <hash, filename> for files on the client side
+  std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
+	std::vector<std::string> sameHash;
+  printf("List of files on server the client doesn't have:\n");
+  for(int i = 0; i < num_files; i++){
+    struct file_name file = files[i];
+
+    // Look up if the client has a file with the same hash std::string (same file content)
+    // and print information accordingly
+    std::string hashStr(file.hash);
+    std::unordered_map<std::string, std::string>::const_iterator search = filesOnClient.find(hashStr);
+    if(search == filesOnClient.end())
+      printf("File: %s \n", file.filename);
+    else
+    	sameHash.push_back(search->first);
+  }
+  
+  printf("\n");
+  printf("List of files on client that server does not have:\n");
+  int numFilesClientDiff = 0;
+  for(auto& pair : filesOnClient){
+  	if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
+  		printf("File %s \n", pair.second.c_str());
+  		numFilesClientDiff++;
+  	}
+  }
+  if(numFilesClientDiff == 0)
+  	printf("No such file found.\n");
 }
 
 std::unordered_map<std::string, std::string> getFilesOnClient(){

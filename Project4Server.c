@@ -71,7 +71,7 @@ int main( int argc, char* argv[] )
 
 
     // bind socket
-    if ((bind( sock, (struct sockaddr*) &server_addr, sizeof( server_addr ))) < 0 )
+    if ( (bind( sock, (struct sockaddr*) &server_addr, sizeof( server_addr ))) < 0 )
     {
         fprintf( stderr, "binding socket failed\n" );
         exit(1);
@@ -161,7 +161,6 @@ void list( int client_sock )
 
     pclose( pipe );
 
-
     // create a packet from the list of music files
     struct header response_header;
     response_header.length = num_files;
@@ -169,12 +168,14 @@ void list( int client_sock )
     const char* msg_type = "LIST";
     memcpy( &(response_header.type), msg_type, 4 );
 
-
+    struct file_name files_list[ file_count ];
+    memset( files_list, 0, sizeof( struct file_name ) * file_count );
+		memcpy( files_list, &files, sizeof( struct file_name ) * file_count);
     // copy header and file names into buffer
     size_t header_len = sizeof( struct header );
     size_t data_len = sizeof( struct file_name ) * num_files;
 
-    size_t packet_len = header_len + data_len;
+    int packet_len = header_len + data_len;
 
     unsigned char packet[ packet_len ];
 
@@ -182,7 +183,7 @@ void list( int client_sock )
     memcpy( packet, &response_header, header_len );
 
     // copy file names
-    memcpy( &packet[ header_len ], files, data_len );
+    memcpy( &packet[ header_len ], files_list, data_len );
 
 
     // send response to client
@@ -212,7 +213,7 @@ void send_files( int client_sock, int length )
     struct push_file file_sizes[ length ];
 
     // keeps track of total size of packet
-    size_t packet_size = sizeof( struct header );
+    int packet_size = sizeof( struct header );
 
     // get the size of each requested file that is found
     int file_found_count = 0;
@@ -464,8 +465,5 @@ void write_files( int client_sock, int length )
 
         // rename to remove .part once the entire file is written
         rename( new_file_name, prefix.name );
-
-
-        // TODO: may want to consider adding a hash to check that the file is correct?
     }
 }
