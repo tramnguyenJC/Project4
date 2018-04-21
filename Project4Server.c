@@ -168,8 +168,6 @@ void list( int client_sock )
     char* msg_type = "LIST";
     memcpy( &(response_header.type), msg_type, 4 );
 
-    struct file_name files_list[ file_count ];
-    memset( files_list, 0, sizeof( struct file_name ) * file_count );
 
     // copy header and file names into buffer
     size_t header_len = sizeof( struct header );
@@ -183,7 +181,7 @@ void list( int client_sock )
     memcpy( packet, &response_header, header_len );
 
     // copy file names
-    memcpy( &packet[ header_len ], files_list, data_len );
+    memcpy( &packet[ header_len ], files, data_len );
 
 
     // send response to client
@@ -469,5 +467,8 @@ void write_files( int client_sock, int length )
 
         // rename to remove .part once the entire file is written
         rename( new_file_name, prefix.name );
+
+
+        // TODO: may want to consider adding a hash to check that the file is correct?
     }
 }
