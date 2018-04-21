@@ -7,11 +7,11 @@
 #include <netdb.h>
 #include <errno.h>
 
-
 #define SERVER_HOST "141.166.207.144"  /* wallis IP address */
 #define SERVER_PORT "35001"
 
 #define SA struct sockaddr
+
 
 /* Miscellaneous constants */
 #define	MAXLINE		4096	/* max text line length */
