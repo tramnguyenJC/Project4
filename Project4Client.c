@@ -32,15 +32,15 @@ void leave(int sock);
 // @brief: This function retrieves all the current files on the client side
 // and returns a hashmap of  <hash string, file name>
 // Choose structure hashmap for easier look up (O(1) instead of O(n))
-unordered_map<string, string> getFilesOnClient();
+std::unordered_map<std::string, std::string> getFilesOnClient();
 
 int main (int argc, char *argv[]) {
 
   const char *serverHost = SERVER_HOST;   //< Default server host
   unsigned short serverPort = atoi(SERVER_PORT); // Default server port
-  char *serverPortString;           //< String representing server port
-  struct sockaddr_in serverAddr;    //< Echo server address 
-  //int bytesRcvd;                    //< Bytes read in single recv() and total byte reads
+  char *serverPortString;                 //< string representing server port
+  struct sockaddr_in serverAddr;          //< Echo server address 
+ 
 
   // Test for correct number of arguments
   if (argc != 3 && argc != 1) {
@@ -85,7 +85,7 @@ int main (int argc, char *argv[]) {
   printInstructions();
 
   for(;;){
-    // allocates space for the string user enters
+    // allocates space for the std::string user enters
     const int size = 100;
     char input[size];
 
@@ -174,7 +174,7 @@ void list(int sock){
   memcpy(&files, dataBuffer, sizeof(struct file_name));
 
   // Retrieve a hashmap of <hash, filename> for files on the client side
-  unordered_map<string, string> filesOnClient = getFilesOnClient();
+  std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
 
   printf("List of files on server:\n");
   for(int i = 0; i < num_files; i++){
@@ -183,10 +183,10 @@ void list(int sock){
     struct file_name file = files[i];
     memcpy(&file, &dataBuffer[i*sizeof(struct file_name)], sizeof(struct file_name));
     
-    // Look up if the client has a file with the same hash string (same file content)
+    // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
-    string hashStr(file.hash);
-    unordered_map<string, string>::const_iterator search = filesOnClient.find(hashStr);
+    std::string hashStr(file.hash);
+    std::unordered_map<std::string, std::string>::const_iterator search = filesOnClient.find(hashStr);
     if(search == filesOnClient.end())
       printf("File: %s \n", file.filename);
     else
@@ -198,8 +198,8 @@ void diff(int sock){
   
 }
 
-unordered_map<string, string> getFilesOnClient(){
-  unordered_map<string, string> hashToName;
+std::unordered_map<std::string, std::string> getFilesOnClient(){
+  std::unordered_map<std::string, std::string> hashToName;
 
   // use ls to get all music files in current directory
   FILE* pipe = popen( "find -maxdepth 1 -iname '*.mp3'", "r" );
@@ -210,12 +210,12 @@ unordered_map<string, string> getFilesOnClient(){
   while( success != 0 )
   {
     char filename[FILE_NAME_MAX];
-    // copy all but leading "./" and ending newline character into string
+    // copy all but leading "./" and ending newline character into std::string
     strncpy(filename, &file[2], strlen( file ) - 3 );
-    string filenameStr(filename);
+    std::string filenameStr(filename);
     // compute hash of file
     char* hashResult = computeHash(filename);
-    string hash(hashResult);
+    std::string hash(hashResult);
     free(hashResult);
 
     // Add both to the hashmap

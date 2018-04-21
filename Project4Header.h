@@ -7,6 +7,10 @@
 #include <netdb.h>
 #include <errno.h>
 
+#include <iostream>
+#include <string>
+#include <unordered_map>
+
 #define SERVER_HOST "141.166.207.144"  /* wallis IP address */
 #define SERVER_PORT "35001"
 
