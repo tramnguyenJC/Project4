@@ -428,13 +428,11 @@ void write_files( int client_sock, int length )
         unsigned char file_bytes[ prefix.size ];
         memset( file_bytes, 0, prefix.size );
 
-        if ( recv( client_sock, file_bytes, prefix.size, 0 ) < 0 )
-        {
+        if ( recv( client_sock, file_bytes, prefix.size, 0 ) < 0 ){
             fprintf( stderr, "recv() failed\n" );
             close( client_sock );
             exit(1);
         }
-
 
         // create file using filename
         // adding .part suffix at first

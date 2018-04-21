@@ -40,6 +40,8 @@ std::unordered_map<std::string, std::string> getFilesOnClient();
 // first 4 bytes as the number of file names returned.
 unsigned char* getFilenamesOnServer(int sock);
 
+char *musicDir;													//< directory path that contains music files
+
 int main (int argc, char *argv[]) {
 
   const char *serverHost = SERVER_HOST;   //< Default server host
@@ -49,21 +51,28 @@ int main (int argc, char *argv[]) {
  
 
   // Test for correct number of arguments
-  if (argc != 3 && argc != 1) {
-    printf("Error: Usage ./Project4Client [-s <server IP>[:<port>]] \n");
+  if (argc != 5 && argc != 3) {
+    printf("Error: Usage ./Project4Client -d <path to music files> [-s <server IP>[:<port>]] \n");
     exit(1);
   }
 
+	if ( argv[1][0] == '-' && argv[1][1] == 'd' )
+    musicDir = argv[2];	
+  else {
+  	fprintf( stderr, "Error: Usage ./Project4Client [-s <server IP>[:<port>]] -d <path to music files>\n" );
+      exit(1);
+  }
+  
   // If user specifies IP Address/name and port number
-  if(argc == 3){
-    if ( argv[1][0] == '-' && argv[1][1] == 's' ){
-      serverHost = strtok(argv[2],":");
+  if(argc == 5){
+    if ( argv[3][0] == '-' && argv[3][1] == 's' ){
+      serverHost = strtok(argv[4],":");
       if ((serverPortString = strtok(NULL, ":")) != NULL) {
         serverPort = atoi(serverPortString);
       }
     }
     else{
-      fprintf( stderr, "Error: Usage ./Project4Client [-s <server IP>[:<port>]]\n" );
+      fprintf( stderr, "Error: Usage ./Project4Client [-s <server IP>[:<port>]] -d <path to music files>\n" );
       exit(1);
     }
   }
@@ -248,7 +257,9 @@ std::unordered_map<std::string, std::string> getFilesOnClient(){
   std::unordered_map<std::string, std::string> hashToName;
 
   // use ls to get all music files in current directory
-  FILE* pipe = popen( "find -maxdepth 1 -iname '*.mp3'", "r" );
+  char command[strlen("find  -maxdepth 1 -iname '*.mp3") + strlen(musicDir)];
+  sprintf(command, "find %s -maxdepth 1 -iname '*.mp3'", musicDir);
+  FILE* pipe = popen(command, "r" );
   // get first filename
   char file[FILE_NAME_MAX];
   char* success = fgets( file, FILE_NAME_MAX, pipe );
@@ -256,8 +267,9 @@ std::unordered_map<std::string, std::string> getFilesOnClient(){
   while( success != 0 )
   {
     char filename[FILE_NAME_MAX];
+ 
     // copy all but leading "./" and ending newline character into std::string
-    strncpy(filename, &file[2], strlen( file ) - 3 );
+    strncpy(filename, &file[2], strlen( file ) - 3);
     std::string filenameStr(filename);
     // compute hash of file
     char* hashResult = computeHash(filename);
