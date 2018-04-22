@@ -424,29 +424,25 @@ void write_files( int client_sock, int length )
  
         // read in contents of file
         unsigned char* file_bytes = (unsigned char*) malloc(prefix.size);
-        unsigned char* subfile_bytes = (unsigned char*) malloc(prefix.size);
-        
-        
-        cout << strlen(prefix.name) << endl;
-        printf("Name %s\n", prefix.name);
-        cout << "Prefix.size " << prefix.size << endl;
+        unsigned char* subfile_bytes = (unsigned char*) malloc(1);
+       
+        printf("Syncing file: %s\n", prefix.name);
        	// Keep calling recv() until we receive all data bytes
         memset( file_bytes, 0, prefix.size );
 				int bytesRcv = 0;
 				int totalBytesRcv = 0;
 				while (totalBytesRcv < prefix.size){
-		      if ((bytesRcv = recv( client_sock, subfile_bytes, prefix.size, 0 )) < 0 )
+		      if ((bytesRcv = recv( client_sock, subfile_bytes, 1, 0 )) < 0 )
 		      {
 		          fprintf( stderr, "recv() failed\n" );
 		          close( client_sock );
 		          exit(1);
 		      }
+		     
 		      memcpy(&file_bytes[totalBytesRcv], subfile_bytes, bytesRcv);
         	totalBytesRcv += bytesRcv;
-					cout << "Bytes Recevied " << bytesRcv << endl;
-		     cout << "Total Bytes Recevied " << totalBytesRcv << endl;
         }
-        cout << "error 3 " << endl;
+   
         // create file using filename
         // adding .part suffix at first
         // to avoid including incomplete files in a LIST request
@@ -460,17 +456,17 @@ void write_files( int client_sock, int length )
         strncpy( &new_file_name[ file_name_len ], ".part", 5 );
 
         new_file_name[ file_name_len + 5 ] = '\0';
-				cout << "error 4 " << endl;
+				
         // create file
         FILE* new_file = fopen( new_file_name, "w" );
         // write bytes to file
         fwrite( file_bytes, sizeof(char), prefix.size, new_file );
         fclose( new_file );
-			
-					cout << "error 5 " << endl;
+		
         // rename to remove .part once the entire file is written
         rename( new_file_name, prefix.name );
       	free(file_bytes);
       	free(subfile_bytes);
     }
+    printf("Syncing completed. \n");
 }

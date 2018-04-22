@@ -30,9 +30,9 @@ void leave(int sock);
 
 //////////////////////////////////////////////////////////////////////////////
 // @brief: This function retrieves all the current files on the client side
-// and returns a hashmap of  <hash string, file name>
+// and returns a hashmap of  <hash string, vector of file names with same content>
 // Choose structure hashmap for easier look up (O(1) instead of O(n))
-std::unordered_map<std::string, std::string> getFilesOnClient();
+std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient();
 
 //////////////////////////////////////////////////////////////////////////////
 // @brief: Retrieves all file names currently on server
@@ -111,12 +111,15 @@ int main (int argc, char *argv[]) {
 
     // reads in user input and calls appropriate functions
     fgets(input, size, stdin);
-    if(strncmp(input, "list", 4) == 0)
+    if(strncmp(input, "list", 4) == 0){
       list(sock);
-    else if(strncmp(input, "diff", 4) == 0)
+    }
+    else if(strncmp(input, "diff", 4) == 0){
       diff(sock);
-    else if(strncmp(input, "sync", 4) == 0)
+    }
+    else if(strncmp(input, "sync", 4) == 0){
       syncFiles(sock);
+    }
     else if(strncmp(input, "bye!", 4) == 0){
       leave(sock);
       break;
@@ -203,9 +206,9 @@ void list(int sock){
   }
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
-  std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
+  std::unordered_map<std::string, std::vector<std::string>> filesOnClient = getFilesOnClient();
 
-  printf("List of files on server:\n");
+  printf("+ List of files on server:\n");
   for(int i = 0; i < num_files; i++){
 
     // Store appropriate data into a file_name struct for each file name
@@ -214,12 +217,16 @@ void list(int sock){
     // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
     std::string hashStr(file.hash);
-    std::unordered_map<std::string, std::string>::const_iterator search = filesOnClient.find(hashStr);
+    std::unordered_map<std::string, std::vector<std::string>>::const_iterator search
+     = filesOnClient.find(hashStr);
     if(search == filesOnClient.end())
       printf("File: %s \n", file.filename);
-    else
-      printf("File: %s (duplicate content with %s) \n", file.filename, search->second.c_str());
+    else{
+      for(auto& name : search->second)
+      	printf("File: %s (duplicate content with %s) \n", file.filename, name.c_str());
+    }
   }
+  printf("\n");
   free(dataBuffer);
 }
 
@@ -232,15 +239,17 @@ void diff(int sock){
   free(dataBuffer);
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
-  std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
+  std::unordered_map<std::string, std::vector<std::string>> filesOnClient = 
+  	getFilesOnClient();
 	std::vector<std::string> sameHash;
-  printf("List of files on server the client doesn't have:\n");
+  printf("+ List of files on server the client doesn't have:\n");
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];
     // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
     std::string hashStr(file.hash);
-    std::unordered_map<std::string, std::string>::const_iterator search = filesOnClient.find(hashStr);
+    std::unordered_map<std::string,std::vector<std::string>>::const_iterator search = 
+    	filesOnClient.find(hashStr);
     if(search == filesOnClient.end())
       printf("File: %s \n", file.filename);
     else
@@ -250,20 +259,23 @@ void diff(int sock){
   	printf("No such file found.\n");
   
   printf("\n");
-  printf("List of files on client that server does not have:\n");
+  printf("+ List of files on client that server does not have:\n");
   int numFilesClientDiff = 0;
   for(auto& pair : filesOnClient){
   	if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
-  		printf("File: %s \n", pair.second.c_str());
-  		numFilesClientDiff++;
+  		for(auto& name : pair.second){
+      	printf("File: %s \n", name.c_str());
+  			numFilesClientDiff++;
+  		}
   	}
   }
   if(numFilesClientDiff == 0)
   	printf("No such file found.\n");
+  printf("\n");
 }
 
-std::unordered_map<std::string, std::string> getFilesOnClient(){
-  std::unordered_map<std::string, std::string> hashToName;
+std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient(){
+  std::unordered_map<std::string, std::vector<std::string>> hashToName;
 
   // use ls to get all music files in current directory
   char command[strlen("find  -maxdepth 1 -iname '*.mp3'") + strlen(musicDir)];
@@ -287,7 +299,18 @@ std::unordered_map<std::string, std::string> getFilesOnClient(){
     free(hashResult);
 
     // Add both to the hashmap
-    hashToName.insert(make_pair(hash, filenameStr));
+    std::unordered_map<std::string, std::vector<std::string>>::const_iterator it = 
+    	hashToName.find(hash);
+    if(it == hashToName.end()){
+    	std::vector<std::string> vec;
+    	vec.push_back(filenameStr);
+    	hashToName.insert(make_pair(hash,vec));
+    }
+    else {
+    	std::vector<std::string> vec = it->second;
+    	vec.push_back(filenameStr);
+    	hashToName[hash] = vec;
+    }
     // get next file name
     success = fgets( file, FILE_NAME_MAX, pipe );
   }
@@ -305,17 +328,18 @@ void syncFiles(int sock){
   free(dataBuffer);
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
-  std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
+  std::unordered_map<std::string, std::vector<std::string>> filesOnClient = getFilesOnClient();
 	std::vector<std::string> sameHash;
 	std::vector<std::string> filesToSend;
 	std::vector<std::string> filesToRequest;
 	
-	printf("List of files server needs to send to client: \n");
+	printf("+ List of files server needs to send to client: \n");
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];
     
     std::string hashStr(file.hash);
-    std::unordered_map<std::string, std::string>::const_iterator search = filesOnClient.find(hashStr);
+    std::unordered_map<std::string, std::vector<std::string>>::const_iterator search =
+     filesOnClient.find(hashStr);
     if(search == filesOnClient.end()){
     	string filenameStr(file.filename);
     	filesToRequest.push_back(filenameStr);
@@ -327,18 +351,23 @@ void syncFiles(int sock){
   if(sameHash.size() == (unsigned int)num_files)
   	printf("No such file found.\n");
   
-  printf("List of files client needs to send to server:\n");
+  printf("\n");
+  printf("+ List of files client needs to send to server:\n");
   int numFilesClientDiff = 0;
   for(auto& pair : filesOnClient){
   	if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
-  		printf("File %s \n", pair.second.c_str());
-  		filesToSend.push_back(pair.second);
+  		for(auto& name : pair.second){
+  			printf("File %s \n", name.c_str());
+  			filesToSend.push_back(name);
+  		}
   		numFilesClientDiff++;
   	}
   }
   if(numFilesClientDiff == 0)
   	printf("No such file found.\n");
   sendFiles(sock, filesToSend);
+  printf("\nComplete sending files to the server.\n");
+  printf("\n");
 }
 
 void sendFiles(int sock, std::vector<std::string> filesToSend){
@@ -395,7 +424,7 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
       strncpy(file_sizes[file_found_count].name, nameWithoutDir, name_len);
     	file_sizes[file_found_count].name[strlen(nameWithoutDir)] = '\0';
       file_sizes[ file_found_count ].size = size;
-     
+  
       // update packet size to account for this file
       packet_size += sizeof( struct push_file );
       packet_size += file_sizes[file_found_count].size;
@@ -406,7 +435,6 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
   
   // construct response message
   unsigned char* packet = (unsigned char*)malloc(packet_size);
-  cout << (packet_size - sizeof( struct header ) ) << endl;
   memset( packet, 0, packet_size );
 	
   // create header and copy to message
