@@ -30,9 +30,9 @@ void leave(int sock);
 
 //////////////////////////////////////////////////////////////////////////////
 // @brief: This function retrieves all the current files on the client side
-// and returns a hashmap of  <hash string, file name>
+// and returns a hashmap of  <hash string, vector of file names with same content>
 // Choose structure hashmap for easier look up (O(1) instead of O(n))
-std::unordered_map<std::string, std::string> getFilesOnClient();
+std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient();
 
 //////////////////////////////////////////////////////////////////////////////
 // @brief: Retrieves all file names currently on server
@@ -40,7 +40,12 @@ std::unordered_map<std::string, std::string> getFilesOnClient();
 // first 4 bytes as the number of file names returned.
 unsigned char* getFilenamesOnServer(int sock);
 
-char *musicDir;													//< directory path that contains music files
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Construct a "PUSH" message with a list of struct push_file (along with
+// the byte content of each file) for files that are on client but not on server
+void sendFiles(int sock, std::vector<std::string> filesToSend);
+
+char *musicDir;									//< directory path that contains music files
 
 int main (int argc, char *argv[]) {
 
@@ -106,12 +111,15 @@ int main (int argc, char *argv[]) {
 
     // reads in user input and calls appropriate functions
     fgets(input, size, stdin);
-    if(strncmp(input, "list", 4) == 0)
+    if(strncmp(input, "list", 4) == 0){
       list(sock);
-    else if(strncmp(input, "diff", 4) == 0)
+    }
+    else if(strncmp(input, "diff", 4) == 0){
       diff(sock);
-    else if(strncmp(input, "sync", 4) == 0)
+    }
+    else if(strncmp(input, "sync", 4) == 0){
       syncFiles(sock);
+    }
     else if(strncmp(input, "bye!", 4) == 0){
       leave(sock);
       break;
@@ -167,10 +175,13 @@ unsigned char* getFilenamesOnServer(int sock){
   unsigned char* dataBuffer = (unsigned char*) malloc(data_len + 4);
   memset(dataBuffer, 0, data_len + 4);
   memcpy(dataBuffer, &num_files, 4);
-  if((recv(sock, &dataBuffer[4], data_len, 0)) <= 0) {
-    printf("recv() failed or connection closed prematurely.\n");
-    exit(1);
+  if(num_files != 0){
+	  if((recv(sock, &dataBuffer[4], data_len, 0)) < 0) {
+	  	printf("recv() failed or connection closed prematurely.\n");
+    	exit(1);
+  	}
   }
+  
   return dataBuffer;
 }
 
@@ -195,9 +206,9 @@ void list(int sock){
   }
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
-  std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
+  std::unordered_map<std::string, std::vector<std::string>> filesOnClient = getFilesOnClient();
 
-  printf("List of files on server:\n");
+  printf("+ List of files on server:\n");
   for(int i = 0; i < num_files; i++){
 
     // Store appropriate data into a file_name struct for each file name
@@ -206,12 +217,16 @@ void list(int sock){
     // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
     std::string hashStr(file.hash);
-    std::unordered_map<std::string, std::string>::const_iterator search = filesOnClient.find(hashStr);
+    std::unordered_map<std::string, std::vector<std::string>>::const_iterator search
+     = filesOnClient.find(hashStr);
     if(search == filesOnClient.end())
       printf("File: %s \n", file.filename);
-    else
-      printf("File: %s (duplicate content with %s) \n", file.filename, search->second.c_str());
+    else{
+      for(auto& name : search->second)
+      	printf("File: %s (duplicate content with %s) \n", file.filename, name.c_str());
+    }
   }
+  printf("\n");
   free(dataBuffer);
 }
 
@@ -224,40 +239,46 @@ void diff(int sock){
   free(dataBuffer);
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
-  std::unordered_map<std::string, std::string> filesOnClient = getFilesOnClient();
+  std::unordered_map<std::string, std::vector<std::string>> filesOnClient = 
+  	getFilesOnClient();
 	std::vector<std::string> sameHash;
-  printf("List of files on server the client doesn't have:\n");
+  printf("+ List of files on server the client doesn't have:\n");
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];
-
     // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
     std::string hashStr(file.hash);
-    std::unordered_map<std::string, std::string>::const_iterator search = filesOnClient.find(hashStr);
+    std::unordered_map<std::string,std::vector<std::string>>::const_iterator search = 
+    	filesOnClient.find(hashStr);
     if(search == filesOnClient.end())
       printf("File: %s \n", file.filename);
     else
     	sameHash.push_back(search->first);
   }
+   if(sameHash.size() == (unsigned int)num_files)
+  	printf("No such file found.\n");
   
   printf("\n");
-  printf("List of files on client that server does not have:\n");
+  printf("+ List of files on client that server does not have:\n");
   int numFilesClientDiff = 0;
   for(auto& pair : filesOnClient){
   	if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
-  		printf("File %s \n", pair.second.c_str());
-  		numFilesClientDiff++;
+  		for(auto& name : pair.second){
+      	printf("File: %s \n", name.c_str());
+  			numFilesClientDiff++;
+  		}
   	}
   }
   if(numFilesClientDiff == 0)
   	printf("No such file found.\n");
+  printf("\n");
 }
 
-std::unordered_map<std::string, std::string> getFilesOnClient(){
-  std::unordered_map<std::string, std::string> hashToName;
+std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient(){
+  std::unordered_map<std::string, std::vector<std::string>> hashToName;
 
   // use ls to get all music files in current directory
-  char command[strlen("find  -maxdepth 1 -iname '*.mp3") + strlen(musicDir)];
+  char command[strlen("find  -maxdepth 1 -iname '*.mp3'") + strlen(musicDir)];
   sprintf(command, "find %s -maxdepth 1 -iname '*.mp3'", musicDir);
   FILE* pipe = popen(command, "r" );
   // get first filename
@@ -267,9 +288,10 @@ std::unordered_map<std::string, std::string> getFilesOnClient(){
   while( success != 0 )
   {
     char filename[FILE_NAME_MAX];
- 
+    
     // copy all but leading "./" and ending newline character into std::string
     strncpy(filename, &file[2], strlen( file ) - 3);
+    filename[strlen( file ) - 3] = '\0';
     std::string filenameStr(filename);
     // compute hash of file
     char* hashResult = computeHash(filename);
@@ -277,7 +299,18 @@ std::unordered_map<std::string, std::string> getFilesOnClient(){
     free(hashResult);
 
     // Add both to the hashmap
-    hashToName.insert(make_pair(hash, filenameStr));
+    std::unordered_map<std::string, std::vector<std::string>>::const_iterator it = 
+    	hashToName.find(hash);
+    if(it == hashToName.end()){
+    	std::vector<std::string> vec;
+    	vec.push_back(filenameStr);
+    	hashToName.insert(make_pair(hash,vec));
+    }
+    else {
+    	std::vector<std::string> vec = it->second;
+    	vec.push_back(filenameStr);
+    	hashToName[hash] = vec;
+    }
     // get next file name
     success = fgets( file, FILE_NAME_MAX, pipe );
   }
@@ -286,7 +319,170 @@ std::unordered_map<std::string, std::string> getFilesOnClient(){
 }
 
 void syncFiles(int sock){
- 
+
+	unsigned char* dataBuffer = getFilenamesOnServer(sock);
+	int num_files;
+	memcpy(&num_files, dataBuffer, 4);
+	struct file_name files[sizeof(file_name)*num_files];
+	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
+  free(dataBuffer);
+  
+  // Retrieve a hashmap of <hash, filename> for files on the client side
+  std::unordered_map<std::string, std::vector<std::string>> filesOnClient = getFilesOnClient();
+	std::vector<std::string> sameHash;
+	std::vector<std::string> filesToSend;
+	std::vector<std::string> filesToRequest;
+	
+	printf("+ List of files server needs to send to client: \n");
+  for(int i = 0; i < num_files; i++){
+    struct file_name file = files[i];
+    
+    std::string hashStr(file.hash);
+    std::unordered_map<std::string, std::vector<std::string>>::const_iterator search =
+     filesOnClient.find(hashStr);
+    if(search == filesOnClient.end()){
+    	string filenameStr(file.filename);
+    	filesToRequest.push_back(filenameStr);
+    	printf("File %s \n", file.filename);
+    }
+    else
+    	sameHash.push_back(search->first);
+  }
+  if(sameHash.size() == (unsigned int)num_files)
+  	printf("No such file found.\n");
+  
+  printf("\n");
+  printf("+ List of files client needs to send to server:\n");
+  int numFilesClientDiff = 0;
+  for(auto& pair : filesOnClient){
+  	if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
+  		for(auto& name : pair.second){
+  			printf("File %s \n", name.c_str());
+  			filesToSend.push_back(name);
+  		}
+  		numFilesClientDiff++;
+  	}
+  }
+  if(numFilesClientDiff == 0)
+  	printf("No such file found.\n");
+  sendFiles(sock, filesToSend);
+  printf("\nComplete sending files to the server.\n");
+  printf("\n");
+}
+
+void sendFiles(int sock, std::vector<std::string> filesToSend){
+	int length = filesToSend.size();
+	// struct for each file
+  struct push_file file_sizes[ length ];
+
+  // keeps track of total size of packet
+  int packet_size = sizeof( struct header );
+	// get the size of each requested file that is found
+  int file_found_count = 0;
+
+  int i;
+  for ( i = 0; i < length; ++i )
+  {
+    // get the size of this file
+    // command: find -iname '$[filename]' -printf '%s\n'
+    // [filename] must not contain slashes in the find command, therefore we
+    // strip off the directory path string in the filename
+    
+    // Size of music directory string (after stripped off 2 chars './' at the front,
+    // but add the '/' in between the directory and fileName
+   
+    size_t dir_len = strlen(musicDir) - 1;
+		size_t name_len = filesToSend[i].length() - dir_len;
+		char nameWithoutDir[name_len + 1];
+		strncpy(nameWithoutDir, &(filesToSend[i].c_str()[dir_len]), name_len);
+		nameWithoutDir[name_len] = '\0';
+		
+    size_t command_len = strlen( "find -iname '" );
+    size_t options_len = strlen( " -printf '%s'\n" );
+		size_t len = command_len + name_len + options_len;
+
+    // copy command and filename for call
+    char command[ len + 1 ];
+		strncpy( command, "find -iname '", command_len );
+    strncpy( &command[command_len], nameWithoutDir, name_len );
+    strncpy( &command[name_len + command_len], "' -printf '%s'\n", options_len );
+		command[ len ] = '\0';
+	
+    // gets size of file (in bytes)
+    FILE* pipe = popen( command, "r" );
+		char num[10];
+    memset( num, 0, 10 );
+	  fgets( num, 10, pipe );
+   	pclose( pipe );
+   	unsigned int size = strtoul( num, 0, 10 );
+		
+    // atoi returns 0 from an empty string, so
+    // zero indicates the file wasn't found
+    if ( size != 0 ){
+      // copy file name (include path directory) and size
+      memset( file_sizes[file_found_count].name, 0, strlen(nameWithoutDir));
+      strncpy(file_sizes[file_found_count].name, nameWithoutDir, name_len);
+    	file_sizes[file_found_count].name[strlen(nameWithoutDir)] = '\0';
+      file_sizes[ file_found_count ].size = size;
+  
+      // update packet size to account for this file
+      packet_size += sizeof( struct push_file );
+      packet_size += file_sizes[file_found_count].size;
+
+      ++file_found_count;
+    }
+  }
+  
+  // construct response message
+  unsigned char* packet = (unsigned char*)malloc(packet_size);
+  memset( packet, 0, packet_size );
+	
+  // create header and copy to message
+  struct header push_header;
+  memcpy( push_header.type, "PUSH", 4 );
+	
+  push_header.length = file_found_count;
+  memcpy( packet, &push_header, sizeof( struct header ) );
+
+  
+  // pointer to current position in message
+  int current_index = sizeof( struct header );
+
+  // copy requested files to message
+  for ( i = 0; i < file_found_count; ++i )
+  {
+    // copy file information first
+    memcpy( &packet[ current_index ], &file_sizes[i], sizeof( struct push_file ) );
+		current_index += sizeof( struct push_file );
+		
+    // then read in contents of file
+    // Add back the path to be able to open the file
+
+    char nameWithDir[strlen(file_sizes[i].name) + strlen(musicDir)];
+    const char slash[1] = {'/'};
+    memcpy(nameWithDir, &musicDir[2], strlen(musicDir)-2);
+    memcpy(&nameWithDir[strlen(musicDir)-2], slash, strlen(slash));
+    memcpy(&nameWithDir[strlen(musicDir)-1], file_sizes[i].name, strlen(file_sizes[i].name));
+    nameWithDir[strlen(file_sizes[i].name) + strlen(musicDir)-1] = '\0';
+  	
+    FILE* file = fopen( nameWithDir, "r" );    
+		unsigned char* buffer = (unsigned char*) malloc(file_sizes[i].size);
+		fread( buffer, 1, file_sizes[i].size, file );
+		fclose( file );
+		
+		// copy contents of file to message
+    memcpy( &packet[ current_index ], buffer, file_sizes[i].size );
+		current_index += file_sizes[i].size;
+		free(buffer);
+	}
+
+	// send message to server
+  if(send(sock, packet, packet_size, 0 ) != packet_size ){
+    fprintf( stderr, "send() failed\n" );
+    close(sock);
+    exit(1);
+  }
+  free(packet);
 }
 
 void leave(int sock){

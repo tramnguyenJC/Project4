@@ -141,3 +141,11 @@ it strikes me as something that may be useful.
 Merits of LIST detecting whether a SYNC is ongoing? On one hand, it would make sure that LIST gets
 the most updated information possible, but then it could also make it really slow, and it would be
 pretty difficult to ensure that the SYNC is finished.
+
+
+
+===============================================================================
+Tracy's question:
+
++ For receiving the file content, one recv() call won't be enough because the size (in bytes) of the file content is quite large, while the packet size of TCP is limited. Therefore I make multiplerecv() calls until the total number of bytes received reaches the prefix.size. However, this cause another problem: How many bytes does it receive each time? If bytesRcv = 5, for instance, and totalBytesRecv so far has been 99, and prefix.size = 100. That means the next time, it will take 1 byte for the file we are retrieving and 4 bytes of the header of the next push_file struct. Therefore, currently I set bytesRcv buffer size to be 1. This slows down the process but it ensures correct receipt of bytes. Any idea for an alternative?
+
