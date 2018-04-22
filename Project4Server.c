@@ -16,6 +16,7 @@ void list( int client_sock );
  * and responds with the specified files. The length describes the number
  * of file requests in the client message (as specified by the header).
  */
+ 
 void send_files( int client_sock, int length );
 
 /* Reads in length push_file structs and corresponding files from the client
@@ -223,7 +224,7 @@ void send_files( int client_sock, int length )
 
         size_t name_len = strlen( files[file_found_count].filename );
         size_t command_len = strlen( "find -iname '" );
-        size_t options_len = strlen( "' -printf '%s\n'" );
+        size_t options_len = strlen( "' -printf '%s'\n" );
 
         size_t len = command_len + name_len + options_len;
 
@@ -231,11 +232,10 @@ void send_files( int client_sock, int length )
         char command[ len + 1 ];
 
         strncpy( command, "find -iname '", command_len );
-        strncpy( command, files[file_found_count].filename, name_len );
-        strncpy( command, "' -printf '%s\n'", options_len );
+        strncpy( &command[command_len], files[file_found_count].filename, name_len );
+        strncpy( &command[command_len + name_len], "' -printf '%s'\n", options_len );
 
-        command[ len ] = '\0';
-
+        command[len] = '\0';
 
         // gets size of file (in bytes)
         FILE* pipe = popen( command, "r" );
@@ -303,7 +303,6 @@ void send_files( int client_sock, int length )
 
         // copy contents of file to message
         memcpy( &packet[ current_index ], buffer, file_sizes[i].size );
-
         current_index += file_sizes[i].size;
     }
 
@@ -350,7 +349,7 @@ void* threadMain( void* thread_arg )
             close( client_sock );
             exit(1);
         }
-
+       
         // copy header into struct for parsing
         struct header request_header;
         memcpy( &request_header, buffer, header_len );
@@ -406,7 +405,8 @@ void* threadMain( void* thread_arg )
     return NULL;
 }
 
-
+// Fixed several errors in write_files function and send_files function of server
+// (receive all the bytes with multiple recv calls, copy command more correctly)
 void write_files( int client_sock, int length )
 {
     // get files from client
@@ -414,7 +414,6 @@ void write_files( int client_sock, int length )
     for ( i = 0; i < length; ++i )
     {
         struct push_file prefix;
-
         // read in file prefix with name and size
         if ( recv( client_sock, &prefix, sizeof( struct push_file ), 0 ) < 0 )
         {
@@ -422,24 +421,30 @@ void write_files( int client_sock, int length )
             close( client_sock );
             exit(1);
         }
-
-
+       
         // read in contents of file
-        unsigned char file_bytes[ prefix.size ];
+        unsigned char* file_bytes = (unsigned char*) malloc(prefix.size);
+        unsigned char* subfile_bytes = (unsigned char*) malloc(prefix.size);
+       	// Keep calling recv() until we receive all data bytes
         memset( file_bytes, 0, prefix.size );
-
-        if ( recv( client_sock, file_bytes, prefix.size, 0 ) < 0 ){
-            fprintf( stderr, "recv() failed\n" );
-            close( client_sock );
-            exit(1);
+				int bytesRcv = 0;
+				int totalBytesRcv = 0;
+				while (totalBytesRcv < prefix.size){
+		      if ((bytesRcv = recv( client_sock, subfile_bytes, prefix.size, 0 )) < 0 )
+		      {
+		          fprintf( stderr, "recv() failed\n" );
+		          close( client_sock );
+		          exit(1);
+		      }
+		      memcpy(&file_bytes[totalBytesRcv], subfile_bytes, bytesRcv);
+        	totalBytesRcv += bytesRcv;
         }
-
+        
         // create file using filename
         // adding .part suffix at first
         // to avoid including incomplete files in a LIST request
 
         size_t file_name_len = strlen( prefix.name );
-
         // add 6 to accommodate ".part" suffix and \0
         char new_file_name[ file_name_len + 6 ];
 
@@ -448,17 +453,16 @@ void write_files( int client_sock, int length )
         strncpy( &new_file_name[ file_name_len ], ".part", 5 );
 
         new_file_name[ file_name_len + 5 ] = '\0';
-
-
+				
         // create file
         FILE* new_file = fopen( new_file_name, "w" );
-
         // write bytes to file
-        fwrite( file_bytes, 1, prefix.size, new_file );
-
+        fwrite( file_bytes, sizeof(char), prefix.size, new_file );
         fclose( new_file );
-
+			
         // rename to remove .part once the entire file is written
         rename( new_file_name, prefix.name );
+      	free(file_bytes);
+      	free(subfile_bytes);
     }
 }
