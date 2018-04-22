@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <unordered_map>
+#include <iostream>
 #include <vector>
 #include <string>
 #include <algorithm>
