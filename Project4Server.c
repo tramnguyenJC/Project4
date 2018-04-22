@@ -126,7 +126,7 @@ void list( int client_sock )
 
     fgets( num, 10, pipe );
     int num_files = atoi( num );
-
+    
     pclose( pipe );
 
     size_t file_count = 0;
@@ -183,9 +183,8 @@ void list( int client_sock )
     // copy file names
     memcpy( &packet[ header_len ], files, data_len );
 
-
     // send response to client
-    if( send( client_sock, packet, packet_len, 0 ) != packet_len )
+    if((send( client_sock, packet, packet_len, 0)) != packet_len )
     {
         fprintf( stderr, "send() failed\n" );
         close( client_sock );
@@ -415,16 +414,22 @@ void write_files( int client_sock, int length )
     {
         struct push_file prefix;
         // read in file prefix with name and size
-        if ( recv( client_sock, &prefix, sizeof( struct push_file ), 0 ) < 0 )
+    
+        if (recv( client_sock, &prefix, sizeof( struct push_file ), 0 ) < 0 )
         {
             fprintf( stderr, "recv() failed\n" );
             close( client_sock );
             exit(1);
         }
-       
+ 
         // read in contents of file
         unsigned char* file_bytes = (unsigned char*) malloc(prefix.size);
         unsigned char* subfile_bytes = (unsigned char*) malloc(prefix.size);
+        
+        
+        cout << strlen(prefix.name) << endl;
+        printf("Name %s\n", prefix.name);
+        cout << "Prefix.size " << prefix.size << endl;
        	// Keep calling recv() until we receive all data bytes
         memset( file_bytes, 0, prefix.size );
 				int bytesRcv = 0;
@@ -438,8 +443,10 @@ void write_files( int client_sock, int length )
 		      }
 		      memcpy(&file_bytes[totalBytesRcv], subfile_bytes, bytesRcv);
         	totalBytesRcv += bytesRcv;
+					cout << "Bytes Recevied " << bytesRcv << endl;
+		     cout << "Total Bytes Recevied " << totalBytesRcv << endl;
         }
-        
+        cout << "error 3 " << endl;
         // create file using filename
         // adding .part suffix at first
         // to avoid including incomplete files in a LIST request
@@ -453,13 +460,14 @@ void write_files( int client_sock, int length )
         strncpy( &new_file_name[ file_name_len ], ".part", 5 );
 
         new_file_name[ file_name_len + 5 ] = '\0';
-				
+				cout << "error 4 " << endl;
         // create file
         FILE* new_file = fopen( new_file_name, "w" );
         // write bytes to file
         fwrite( file_bytes, sizeof(char), prefix.size, new_file );
         fclose( new_file );
 			
+					cout << "error 5 " << endl;
         // rename to remove .part once the entire file is written
         rename( new_file_name, prefix.name );
       	free(file_bytes);

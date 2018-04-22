@@ -172,10 +172,13 @@ unsigned char* getFilenamesOnServer(int sock){
   unsigned char* dataBuffer = (unsigned char*) malloc(data_len + 4);
   memset(dataBuffer, 0, data_len + 4);
   memcpy(dataBuffer, &num_files, 4);
-  if((recv(sock, &dataBuffer[4], data_len, 0)) <= 0) {
-    printf("recv() failed or connection closed prematurely.\n");
-    exit(1);
+  if(num_files != 0){
+	  if((recv(sock, &dataBuffer[4], data_len, 0)) < 0) {
+	  	printf("recv() failed or connection closed prematurely.\n");
+    	exit(1);
+  	}
   }
+  
   return dataBuffer;
 }
 
@@ -358,10 +361,12 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
     
     // Size of music directory string (after stripped off 2 chars './' at the front,
     // but add the '/' in between the directory and fileName
+   
     size_t dir_len = strlen(musicDir) - 1;
-		size_t name_len = strlen(filesToSend[i].c_str()) - dir_len;
+		size_t name_len = filesToSend[i].length() - dir_len;
 		char nameWithoutDir[name_len + 1];
-		strncpy(nameWithoutDir, &(filesToSend[i].c_str()[dir_len]), name_len + 1);
+		strncpy(nameWithoutDir, &(filesToSend[i].c_str()[dir_len]), name_len);
+		nameWithoutDir[name_len] = '\0';
 		
     size_t command_len = strlen( "find -iname '" );
     size_t options_len = strlen( " -printf '%s'\n" );
@@ -386,9 +391,11 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
     // zero indicates the file wasn't found
     if ( size != 0 ){
       // copy file name (include path directory) and size
+      memset( file_sizes[file_found_count].name, 0, strlen(nameWithoutDir));
       strncpy(file_sizes[file_found_count].name, nameWithoutDir, name_len);
+    	file_sizes[file_found_count].name[strlen(nameWithoutDir)] = '\0';
       file_sizes[ file_found_count ].size = size;
-      
+     
       // update packet size to account for this file
       packet_size += sizeof( struct push_file );
       packet_size += file_sizes[file_found_count].size;
@@ -399,6 +406,7 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
   
   // construct response message
   unsigned char* packet = (unsigned char*)malloc(packet_size);
+  cout << (packet_size - sizeof( struct header ) ) << endl;
   memset( packet, 0, packet_size );
 	
   // create header and copy to message
@@ -421,6 +429,7 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
 		
     // then read in contents of file
     // Add back the path to be able to open the file
+
     char nameWithDir[strlen(file_sizes[i].name) + strlen(musicDir)];
     const char slash[1] = {'/'};
     memcpy(nameWithDir, &musicDir[2], strlen(musicDir)-2);
@@ -439,7 +448,7 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
 		free(buffer);
 	}
 
-	// send message to client
+	// send message to server
   if(send(sock, packet, packet_size, 0 ) != packet_size ){
     fprintf( stderr, "send() failed\n" );
     close(sock);
