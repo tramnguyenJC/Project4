@@ -1,3 +1,12 @@
+#include <unordered_map>
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+
+#include <iostream>
+using namespace std;
+
 
 #include "Project4Header.h"
 
