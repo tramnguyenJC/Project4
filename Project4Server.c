@@ -1,9 +1,22 @@
-#include "Project4Header.h"
 #include <pthread.h>
+#include <time.h>
+#include <unistd.h>
+#include "Project4Header.h"
+
+
+// struct for arguments to each thread
+struct thread_args
+{
+    int client_sock; // socket for client connection
+    char client_ip[ 16 ]; // string of client's IP address
+}
 
 // tracks whether a thread is currently writing the log file
 // that contains information about each client
 boolean log_file_open = false;
+char* log_file_name = "client-activity.log";
+
+
 
 /* Sends the given client a list
  * of .mp3 files in the server's
@@ -15,20 +28,30 @@ void list( int client_sock );
  * specified by the client. Reads in the entries from the client socket
  * and responds with the specified files. The length describes the number
  * of file requests in the client message (as specified by the header).
+ * Returns a list of the names of the files sent to the client.
  */
- 
-void send_files( int client_sock, int length );
-
-/* Reads in length push_file structs and corresponding files from the client
- * and writes them to the server's directory.
- */
-void write_files( int client_sock, int length );
+char** send_files( int client_sock, int length );
 
 /* Handles requests from a client and keeps log information. Once the
  * client ends the connection, the log information is written to the
  * server's log file.
  */
 void* threadMain( void* thread_arg );
+
+/* Reads in length push_file structs and corresponding files from the client
+ * and writes them to the server's directory. Returns a list of the file names
+ * received from the client.
+ */
+char** write_files( int client_sock, int length );
+
+/* Appends information to the file specified by log_file_name. If the client
+ * IP address client_ip is not in the file, an entry for that address is added.
+ * The file names specified in client_files are appended to the list of files the
+ * server has sent and received from the client. The messages stored in client_activity
+ * are appended to the client's activity. The length of the list of files is in
+ * num_files, and the length of the activity log is in log_len.
+ */
+void write_log_file( char** client_files, int num_files, char** client_activity, int log_len, char* client_ip );
 
 
 int main( int argc, char* argv[] )
@@ -103,11 +126,19 @@ int main( int argc, char* argv[] )
             exit(1);
         }
 
+        struct thread_args args;
+        args.client_sock = client;
+
+        // get client IP address
+        char* ip_addr = inet_ntoa( client_addr.sin_addr );
+        strncpy( args.client_ip, ip_addr, 15 ); // IP address is 15 characters long
+        ip_addr[ 15 ] = '\0'; // terminate string
+
         // create thread for client
         pthread_t threadID;
 
 
-        if ( pthread_create( &threadID, NULL, threadMain, (void*) &client ) != 0 )
+        if ( pthread_create( &threadID, NULL, threadMain, (void*) &args ) != 0 )
         {
             fprintf( stderr, "creating thread failed\n" );
             exit(1);
@@ -115,6 +146,7 @@ int main( int argc, char* argv[] )
 
     }
 }
+
 
 
 void list( int client_sock )
@@ -193,16 +225,32 @@ void list( int client_sock )
 }
 
 
-void send_files( int client_sock, int length )
+char** send_files( int client_sock, int length )
 {
     // get file names
     struct file_name files[ length ];
 
-    if ( recv( client_sock, files, length * sizeof( struct file_name ), 0 ) < 0 )
+    // create return array of strings
+    char** added_files = (char**) malloc( length * sizeof( char* ) );
+
+
+    // may need to make multiple calls to recv to get all bytes of packet
+    int bytes_received = 0;
+    int bytes_expected = length * sizeof( struct file_name );
+
+    while( bytes_received < bytes_expected )
     {
-        fprintf( stderr, "recv() failed\n" );
-        close( client_sock );
-        exit(1);
+        int new_bytes;
+
+        // print error and exit if recv fails
+        if ( ( new_bytes = recv( client_sock, &files[ bytes_received ], bytes_expected - bytes_received, 0 ) ) < 0 )
+        {
+            fprintf( stderr, "recv() failed\n" );
+            close( client_sock );
+            exit(1);
+        }
+
+        bytes_received += new_bytes;
     }
 
 
@@ -261,8 +309,17 @@ void send_files( int client_sock, int length )
             packet_size += sizeof( struct push_file );
             packet_size += file_sizes[file_found_count].size;
 
+
+            // add file to list to be returned
+            added_files[ file_found_count ] = malloc( name_len + 1 );
+            strncpy( added_files[ file_found_count ], files[ file_found_count ].filename, name_len );
+            added_files[ file_found_count ][ name_len ] =  '\0';
+
+
+
             ++file_found_count;
         }
+
     }
 
     // construct response message
@@ -314,29 +371,64 @@ void send_files( int client_sock, int length )
         close( client_sock );
         exit(1);
     }
+
+
+    return added_files;
 }
 
 
 void* threadMain( void* thread_arg )
 {
-    int client_sock = *( (int*) thread_arg );
+    struct thread_args* args = ( struct thread_args* ) thread_arg;
+    int client_sock = args->client_sock;
+    char* ip_addr = args->client_ip;
 
     pthread_t threadID = pthread_self();
 
-    // TODO: variables for keeping track of client activity
-    // need to keep client IP address
-    // commands sent from client
-    // a list of the files the server receives
-    // and a list of any files the client requests
+
+    // variables that keep info on client activity
+    // start with 100 strings each, expand later if necessary
+    int files_cap = 100;
+    int log_cap = 100;
+
+    char** client_files = malloc( files_cap * sizeof(char*) );  // list of files sent to/received from client
+    char** activity_log = malloc( log_cap * sizeof(char*) );  // list of messages received from client
+
+    int num_files = 0;  // number of files sent to/received from client
+    int num_messages = 0;  // total number of messages received and logged
+
+
+    // get time of connection beginning
+    time_t t;
+    struct tm* time_struct;
+
+    time( &t );
+    time_struct = localtime( &t );
+
+    char* time_str = asctime( time_struct );
+
+
+    // add information for client connection
+    size_t start_len = strlen( time_str ) + strlen( "\tConnection " ) + 2;
+    client_files[0] = malloc( start_len );
+
+    strncpy( client_files[0], "\tConnection ", strlen( "\tConnection " ) );
+    client_files[0][ start_len - 2 ] = '\n';
+    client_files[0][ start_len - 1 ] = '\0';
+
+    ++num_messages;
+
 
     // deallocates thread resources
     pthread_detach( threadID );
 
-    // keeps track of whether the client has requested to close the connection
-    boolean connection_closed = false;
 
-    // wait for client message
-    while ( ! connection_closed )
+    // pointer to any new info about client files from messages
+    char** new_files = 0;
+
+
+    // infinite loop waiting for client message
+    while ( true )
     {
         size_t header_len = sizeof( struct header );
         unsigned char buffer[ header_len ];
@@ -364,50 +456,69 @@ void* threadMain( void* thread_arg )
             // request for a list of the server's files
             printf( "processing LIST request\n" );
             list( client_sock );
+
+            // add request to client activity information
+            char* log_msg = "\tLIST request";
+            activity_log[ num_messages ] = (char*) malloc( strlen( log_msg ) );
+
         }
         else if (  strncmp( request_header.type, "PULL", 4 ) == 0 )
         {
             // request for the server to transmit specified files
             printf( "processing PULL request\n" );
-            send_files( client_sock, request_header.length );
-
-            // TODO: add files sent to the list of what the client has
+            new_files = send_files( client_sock, request_header.length );
         }
         else if ( strncmp( request_header.type, "PUSH", 4 ) == 0 )
         {
             // packet contains files to write to server's directory
             printf( "receiving files from client\n" );
-            write_files( client_sock, request_header.length );
-
-            // TODO: add files read in to the list of what the client has
+            new_files = write_files( client_sock, request_header.length );
         }
         else if ( strncmp( request_header.type, "BYE!", 4 ) == 0 )
         {
             // request to close connection
             printf( "closing connection\n" );
-            connection_closed = true;
-
             close( client_sock );
+
+            // exit loop
+            break;
+        }
+
+
+        if ( new_files != NULL )
+        {
+            // TODO: add new files to list
+
+            // check if the list is large enough and enlarge if needed
+            //if (  )
+
+            // free memory used for file names
+            int i;
+            for ( i = 0; i < request_header.length; ++i )
+            {
+                free( new_files[i] );
+            }
+
+            free( new_files );
+
+            // reset pointer
+            new_files = NULL;
         }
     }
 
 
-    // TODO: write client data to log file
-    // check if log file is open in another thread
-    if ( !log_file_open )
-    {
-        // if not, open and add activity information for this client
+    write_log_file( client_files, num_files, activity_log, num_messages, ip_addr );
 
-        // if so, wait and try again until it is free
-    }
 
     return NULL;
 }
 
-// Fixed several errors in write_files function and send_files function of server
-// (receive all the bytes with multiple recv calls, copy command more correctly)
-void write_files( int client_sock, int length )
+
+char** write_files( int client_sock, int length )
 {
+    // array of file names to return
+    char** added_files = (char**) malloc( sizeof(char*) * length );
+
     // get files from client
     int i;
     for ( i = 0; i < length; ++i )
@@ -421,28 +532,27 @@ void write_files( int client_sock, int length )
             close( client_sock );
             exit(1);
         }
+
+        printf("Saving file: %s...", prefix.name);
  
         // read in contents of file
-        unsigned char* file_bytes = (unsigned char*) malloc(prefix.size);
-        unsigned char* subfile_bytes = (unsigned char*) malloc(1);
-       
-        printf("Syncing file: %s\n", prefix.name);
-       	// Keep calling recv() until we receive all data bytes
-        memset( file_bytes, 0, prefix.size );
-				int bytesRcv = 0;
-				int totalBytesRcv = 0;
-				while (totalBytesRcv < prefix.size){
-		      if ((bytesRcv = recv( client_sock, subfile_bytes, 1, 0 )) < 0 )
-		      {
-		          fprintf( stderr, "recv() failed\n" );
-		          close( client_sock );
-		          exit(1);
-		      }
-		     
-		      memcpy(&file_bytes[totalBytesRcv], subfile_bytes, bytesRcv);
-        	totalBytesRcv += bytesRcv;
+
+        int bytes_received = 0;
+        int bytes_expected = prefix.size;
+
+        unsigned char file[ bytes_expected ];
+
+        // read in bytes until the entire file has been received
+        while ( bytes_received < bytes_expected )
+        {
+            // read in more data, up to the amount remaining in the file
+            ssize_t new_bytes = recv( client_sock, &file[ bytes_received ], bytes_expected - bytes_received, 0 );
+
+            // the loop will continue until all bytes of the file have been read in (but no more)
+            bytes_received += new_bytes;
         }
-   
+
+
         // create file using filename
         // adding .part suffix at first
         // to avoid including incomplete files in a LIST request
@@ -456,17 +566,127 @@ void write_files( int client_sock, int length )
         strncpy( &new_file_name[ file_name_len ], ".part", 5 );
 
         new_file_name[ file_name_len + 5 ] = '\0';
+
+
+        // for the edge case of two clients syncing the same file at the same time
+        FILE* open_file = fopen( new_file_name, "r" );
+
+        if ( open_file != NULL )
+        {
+            // don't write the file if another client has already sent it
+            fclose( open_file );
+            continue;
+        }
+
 				
         // create file
         FILE* new_file = fopen( new_file_name, "w" );
         // write bytes to file
-        fwrite( file_bytes, sizeof(char), prefix.size, new_file );
+        fwrite( file, sizeof(char), prefix.size, new_file );
         fclose( new_file );
 		
         // rename to remove .part once the entire file is written
         rename( new_file_name, prefix.name );
-      	free(file_bytes);
-      	free(subfile_bytes);
+
+        printf( "complete\n" );
+
+
+        // add file name to list to be returned
+        added_files[i] = (char*) malloc( file_name_len + 1 );
+        strncpy( added_files[i], prefix.name, file_name_len );
+        added_files[i][ file_name_len ] = '\0';
     }
-    printf("Syncing completed. \n");
+
+
+    return added_files;
+}
+
+
+void write_log_file( char** client_files, int num_files, char** client_activity, int log_len, char* client_ip )
+{
+    // TODO: write client data to log file
+
+    // check if log file is open in another thread
+    while ( log_file_open )
+    {
+        // if so, wait 0.5s and try again until it is free
+        sleep( 0.5 );
+    }
+
+
+    // once the log file is free, open and add activity info for this client
+    log_file_open = true;
+
+    // string "Client: [IPaddress]\n" is the beginning of that client's info
+    size_t line_len = strlen( "Client: " ) + 15 + 1;
+
+    char begin_str[ line_len ];
+    strncpy( begin_str, "Client: ", strlen( "Client: " ) );
+    strncpy( &begin_str[ strlen( "Client: " ) ], client_ip, 15 );
+    begin_str[ line_len - 1 ] = '\0';
+
+
+
+    FILE* log_file = fopen( log_file_name, "a+" );
+
+    // search file for beginning of client's information
+    boolean found = false;
+    fpos_t start_pos;
+
+    // iterate until line is found or at the end of file
+    while( !found && !feof( log_file ) )
+    {
+        // line has a max of 255 chars + up to two tabs and newline
+        char line[ 258 ];
+
+        fgets( line, 258, log_file );
+
+        // the beginning line will always be line_len characters long
+        if ( strncmp( line, begin_str, line_len ) == 0 )
+        {
+            found = true;
+            fgetpos( log_file, &start_pos );
+        }
+    }
+
+
+    // if not found, append entry to the end of the file
+    if ( !found )
+    {
+
+    }
+    else
+    {
+
+        // find position to add files
+        // find position to add activity
+
+        // navigate to client -- fseek
+
+        // append files, if any
+
+        // append activity
+    }
+
+
+    // close log file
+    fclose( log_file );
+    log_file_open = false;
+
+
+    // free memory
+    int i;
+    for ( i = 0; i < num_files; ++i )
+    {
+        free( client_files[i] );
+    }
+
+    free( client_files );
+
+    for ( i = 0; i < log_len; ++i )
+    {
+        free( client_activity[i] );
+    }
+
+    free( client_activity );
 }

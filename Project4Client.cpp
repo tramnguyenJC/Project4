@@ -72,8 +72,9 @@ int main (int argc, char *argv[]) {
     exit(1);
   }
 
-	if ( argv[1][0] == '-' && argv[1][1] == 'd' )
-    musicDir = argv[2];	
+  if ( argv[1][0] == '-' && argv[1][1] == 'd' ) {
+        musicDir = argv[ 2 ];
+  }
   else {
   	fprintf( stderr, "Error: Usage ./Project4Client [-s <server IP>[:<port>]] -d <path to music files>\n" );
       exit(1);
