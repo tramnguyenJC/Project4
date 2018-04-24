@@ -154,12 +154,12 @@ int main( int argc, char* argv[] )
 
         // passes client socket and ip address to the thread
         struct thread_args* args = (struct thread_args*) malloc( sizeof( struct thread_args ) );
+        memset( args, 0, sizeof( struct thread_args ) );
         args->client_sock = client;
 
         // get client IP address and copy into thread_args
         char* ip_addr = inet_ntoa( client_addr.sin_addr );
-        strncpy( args->client_ip, ip_addr, 15 ); // IP address is 15 characters long
-        args->client_ip[ 15 ] = '\0'; // terminate string
+        strncpy( args->client_ip, ip_addr, strlen( ip_addr ) );
 
         // create thread for client
         pthread_t threadID;
@@ -407,14 +407,16 @@ void* threadMain( void* thread_arg )
 
     pthread_t threadID = pthread_self();
 
+    printf( "thread %lu: connection established\n", threadID );
+
 
     // variables that keep info on client activity
     // start with 100 strings each, expand later if necessary
     int files_cap = 100;
     int log_cap = 100;
 
-    char** client_files = malloc( files_cap * sizeof( char* ) );  // list of files sent to/received from client
-    char** activity_log = malloc( log_cap * sizeof( char* ) );  // list of messages received from client
+    char** client_files = (char**) malloc( files_cap * sizeof( char* ) );  // list of files sent to/received from client
+    char** activity_log = (char**) malloc( log_cap * sizeof( char* ) );  // list of messages received from client
 
     size_t num_files = 0;  // number of files sent to/received from client
     size_t num_messages = 0;  // total number of messages received and logged
@@ -431,12 +433,18 @@ void* threadMain( void* thread_arg )
 
 
     // add information for client connection to activity log string
-    size_t start_len = strlen( time_str ) + strlen( "\tConnection " ) + 2;
-    client_files[0] = malloc( start_len );
+    size_t time_len = strlen( time_str );
+    size_t str_len = strlen( "\tConnection opened " );
 
-    strncpy( client_files[0], "\tConnection ", strlen( "\tConnection " ) );
-    client_files[0][ start_len - 2 ] = '\n';
-    client_files[0][ start_len - 1 ] = '\0';
+    size_t start_len = time_len + str_len + 2; // add enough room for \n and \0
+    activity_log[0] = (char*) malloc( start_len );
+
+    // copy connection start time
+    strncpy( activity_log[0], "\tConnection opened ", str_len );
+    strncpy( &activity_log[0][ str_len ], time_str, time_len );
+
+    activity_log[0][ start_len - 2 ] = '\n';
+    activity_log[0][ start_len - 1 ] = '\0';
 
     ++num_messages;
 
@@ -701,8 +709,14 @@ void* threadMain( void* thread_arg )
     }
 
 
+
+    printf( "thread %lu: writing log information...", threadID );
+    fflush( stdout );
+
     // write information collected about client to log file
     write_log_file( client_files, num_files, activity_log, num_messages, ip_addr );
+
+    printf("complete\n");
 
 
     // free variables
@@ -858,11 +872,11 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
     log_file_open = true;
 
     // string "Client: [IPaddress]\n" is the beginning of that client's info
-    size_t line_len = strlen( "Client: " ) + 15 + 2;
+    size_t line_len = strlen( "Client: " ) + strlen( client_ip ) + 2;
 
     char begin_str[ line_len ];
     strncpy( begin_str, "Client: ", strlen( "Client: " ) );
-    strncpy( &begin_str[ strlen( "Client: " ) ], client_ip, 15 );
+    strncpy( &begin_str[ strlen( "Client: " ) ], client_ip, strlen( client_ip ) );
     begin_str[ line_len - 2 ] = '\n';
     begin_str[ line_len - 1 ] = '\0';
 
