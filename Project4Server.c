@@ -246,9 +246,9 @@ void list( int client_sock )
     memcpy( &packet[ header_len ], files, data_len );
 
     // send response to client
-    if((send( client_sock, packet, packet_len, 0)) != packet_len )
+    if( send( client_sock, packet, packet_len, 0) != packet_len )
     {
-        fprintf( stderr, "send() failed\n" );
+        fprintf( stderr, "send() failed: %s\n", strerror( errno ) );
         close( client_sock );
         exit(1);
     }
@@ -269,26 +269,34 @@ char** send_files( int client_sock, int length )
     // create return array of strings
     char** added_files = (char**) malloc( length * sizeof( char* ) );
 
-
-    // may need to make multiple calls to recv to get all bytes of packet
-    size_t bytes_received = 0;
-    size_t bytes_expected = length * sizeof( struct file_name );
-
-    // loop and try to read in however many bytes are remaining until all have been received
-    while( bytes_received < bytes_expected )
+    // packet should consist of length file_name structs
+    int i;
+    for ( i = 0; i < length; ++i )
     {
-        ssize_t new_bytes = recv( client_sock, &files[ bytes_received ], bytes_expected - bytes_received, 0 );
+        unsigned char buffer[ sizeof( struct file_name ) ];
 
-        // print error and exit if recv fails
-        if ( new_bytes < 0 )
+        // for each struct, read remaining bytes until all bytes received
+        // may need to make multiple calls to get all bytes
+        size_t bytes_received = 0;
+        size_t bytes_expected = length * sizeof( struct file_name );
+
+        while( bytes_received < bytes_expected )
         {
-            fprintf( stderr, "recv() failed\n" );
-            close( client_sock );
-            exit(1);
+            int new_bytes = recv( client_sock, &buffer[ bytes_received ], bytes_expected - bytes_received, 0 );
+
+            if ( new_bytes < 0 )
+            {
+                fprintf( stderr, "recv() failed: %s\n", strerror( errno ) );
+                close( client_sock );
+                exit(1);
+            }
+
+            // add new bytes read in to overall count
+            bytes_received += new_bytes;
         }
 
-        // add new bytes read in to overall count
-        bytes_received += new_bytes;
+        // once all bytes are read, copy into struct
+        memcpy( &files[i], buffer, sizeof( struct file_name ) );
     }
 
 
@@ -302,7 +310,6 @@ char** send_files( int client_sock, int length )
     int file_found_count = 0;
 
 
-    int i;
     for ( i = 0; i < length; ++i )
     {
         // get the size of this file (in bytes)
@@ -436,14 +443,13 @@ void* threadMain( void* thread_arg )
     size_t time_len = strlen( time_str );
     size_t str_len = strlen( "\tConnection opened " );
 
-    size_t start_len = time_len + str_len + 2; // add enough room for \n and \0
+    size_t start_len = time_len + str_len + 1; // add enough room for \n and \0
     activity_log[0] = (char*) malloc( start_len );
 
     // copy connection start time
     strncpy( activity_log[0], "\tConnection opened ", str_len );
     strncpy( &activity_log[0][ str_len ], time_str, time_len );
 
-    activity_log[0][ start_len - 2 ] = '\n';
     activity_log[0][ start_len - 1 ] = '\0';
 
     ++num_messages;
@@ -572,6 +578,7 @@ void* threadMain( void* thread_arg )
         {
             // packet contains files to write to server's directory
             printf( "receiving files from client\n" );
+
             new_files = write_files( client_sock, request_header.length );
 
             char* log_msg = "\tSent files to client:\n";
@@ -635,8 +642,8 @@ void* threadMain( void* thread_arg )
 
             // create log message with time that connection was closed
 
-            size_t initial_len = strlen( "Connection closed " );
-            size_t log_msg_len = initial_len + strlen( time_str ) + 2; // account for newline and null terminator
+            size_t initial_len = strlen( "\tConnection closed " );
+            size_t log_msg_len = initial_len + strlen( time_str ) + 2; // account for newline and \0
 
             activity_log[ num_messages ] = (char*) malloc( log_msg_len );
 
@@ -761,11 +768,13 @@ char** write_files( int client_sock, int length )
         size_t bytes_expected = sizeof( struct push_file );
 
         // make sure all bytes get received correctly
+        // get all bytes into temporary buffer first
+        unsigned char buffer[ sizeof( struct push_file ) ];
 
         while( bytes_received < bytes_expected )
         {
             // get up to the entire packet
-            ssize_t new_bytes = recv( client_sock, &prefix, bytes_expected - bytes_received, 0 );
+            ssize_t new_bytes = recv( client_sock, &buffer[ bytes_received ], bytes_expected - bytes_received, 0 );
 
             if ( new_bytes < 0 )
             {
@@ -777,6 +786,9 @@ char** write_files( int client_sock, int length )
             // update based on the number of bytes read in
             bytes_received += new_bytes;
         }
+
+        // once the entire struct has been received, copy into prefix
+        memcpy( &prefix, buffer, sizeof( struct push_file ) );
 
 
         printf("Saving file: %s...", prefix.name);
@@ -825,12 +837,9 @@ char** write_files( int client_sock, int length )
         }
 
 
-        // need to close file to reopen to write
-        fclose( open_file );
-
-
         // create file
         FILE* new_file = fopen( new_file_name, "w" );
+        
         // write bytes to file
         fwrite( file, sizeof(char), prefix.size, new_file );
         fclose( new_file );
