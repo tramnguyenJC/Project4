@@ -13,7 +13,9 @@ struct thread_args
 // tracks whether a thread is currently writing the log file
 // that contains information about each client
 boolean log_file_open = false;
-char* log_file_name = "client-activity.log";
+
+// name of the file to which log information should be written
+char* log_file_name;
 
 
 
@@ -50,7 +52,7 @@ char** write_files( int client_sock, int length );
  * are appended to the client's activity. The length of the list of files is in
  * num_files, and the length of the activity log is in log_len.
  */
-void write_log_file( char** client_files, int num_files, char** client_activity, int log_len, char* client_ip );
+void write_log_file( char** client_files, size_t num_files, char** client_activity, size_t log_len, char* client_ip );
 
 
 int main( int argc, char* argv[] )
@@ -58,23 +60,40 @@ int main( int argc, char* argv[] )
     unsigned short port;
 
     // parse arguments to get port
-    if ( argc != 3 )
+    if ( argc != 5 )
     {
-        fprintf( stderr, "Usage: ./Project4Server -p [port]\n" );
+        fprintf( stderr, "Usage: ./Project4Server -p [port] -l [log file name]\n" );
         exit(1);
     }
     else
     {
-        if ( argv[1][0] == '-' && argv[1][1] == 'p' )
+        int i;
+        for ( i = 0; i < argc; ++i )
         {
-            port = htons( atoi( argv[2] ) );
-        }
-        else
-        {
-            fprintf( stderr, "Usage: ./Project4Server -p [port]\n" );
-            exit(1);
+            if ( argv[i][0] == '-' )
+            {
+                if ( argv[i][1] == 'p' )
+                {
+                    port = htons( atoi( argv[ 2 ] ) );
+                }
+                else if ( argv[i][1] == 'l' )
+                {
+                    // copy given file name to log_file_name
+                    size_t file_name_len = strlen( argv[ i + 1 ] ) + 1;
+                    log_file_name = (char*) malloc( file_name_len );
+
+                    strncpy( log_file_name, argv[ i + 1 ], file_name_len );
+                    log_file_name[ file_name_len - 1 ] = '\0';
+                }
+                else
+                {
+                    fprintf( stderr, "Usage: ./Project4Server -p [port] -l [log file name]\n" );
+                    exit(1);
+                }
+            }
         }
     }
+
 
 
     // create socket
@@ -125,12 +144,14 @@ int main( int argc, char* argv[] )
             exit(1);
         }
 
-        struct thread_args args;
-        args.client_sock = client;
 
-        // get client IP address
+        // passes client socket and ip address to the thread
+        struct thread_args* args = malloc( sizeof( struct thread_args ) );
+        args->client_sock = client;
+
+        // get client IP address and copy into thread_args
         char* ip_addr = inet_ntoa( client_addr.sin_addr );
-        strncpy( args.client_ip, ip_addr, 15 ); // IP address is 15 characters long
+        strncpy( args->client_ip, ip_addr, 15 ); // IP address is 15 characters long
         ip_addr[ 15 ] = '\0'; // terminate string
 
         // create thread for client
@@ -378,6 +399,7 @@ char** send_files( int client_sock, int length )
 
 void* threadMain( void* thread_arg )
 {
+    // get client socket and IP address from arg structure
     struct thread_args* args = ( struct thread_args* ) thread_arg;
     int client_sock = args->client_sock;
     char* ip_addr = args->client_ip;
@@ -393,8 +415,8 @@ void* threadMain( void* thread_arg )
     char** client_files = malloc( files_cap * sizeof( char* ) );  // list of files sent to/received from client
     char** activity_log = malloc( log_cap * sizeof( char* ) );  // list of messages received from client
 
-    int num_files = 0;  // number of files sent to/received from client
-    int num_messages = 0;  // total number of messages received and logged
+    size_t num_files = 0;  // number of files sent to/received from client
+    size_t num_messages = 0;  // total number of messages received and logged
 
 
     // get time of connection beginning
@@ -456,23 +478,110 @@ void* threadMain( void* thread_arg )
             printf( "processing LIST request\n" );
             list( client_sock );
 
-
             // add request to client activity information
-            char* log_msg = "\tLIST request";
+            char* log_msg = "\tLIST request\n";
             activity_log[ num_messages ] = (char*) malloc( strlen( log_msg ) );
+            strncpy( activity_log[ num_messages ], log_msg, strlen( log_msg ) );
 
+            // add the new message to the count
+            ++num_messages;
         }
         else if ( strncmp( request_header.type, "PULL", 4 ) == 0 )
         {
             // request for the server to transmit specified files
             printf( "processing PULL request\n" );
             new_files = send_files( client_sock, request_header.length );
+
+            char* log_msg = "\tReceived files from client:\n";
+
+            size_t total_len = strlen( log_msg );
+
+            // get total length of log message string including file names
+            int i;
+            for ( i = 0; i < request_header.length; ++i )
+            {
+                // include length of string, adding two tabs preceding it and newline at the end
+                total_len += strlen( new_files[i] ) + 3;
+            }
+
+            // allocate overall string and copy everything to it
+            activity_log[ num_messages ] = (char*) malloc( total_len );
+
+            // copy log message
+            strncpy( activity_log[ num_messages ], log_msg, strlen( log_msg ) );
+
+
+            // index of where to copy each part into the string
+            size_t index = strlen( log_msg );
+
+            // copy each file name, preceded by two tabs and followed by a newline
+            for ( i = 0; i < request_header.length; ++i )
+            {
+                // copy tabs
+                strncpy( &activity_log[ num_messages ][ index ], "\t\t", 2 );
+                index += 2;
+
+                // copy filename
+                strncpy( &activity_log[ num_messages ][ index ], new_files[i], strlen( new_files[i] ) );
+                index += strlen( new_files[i] );
+
+                // add newline
+                activity_log[ num_messages ][ index ] = '\n';
+                ++index;
+            }
+
+
+            // add the new message to the count
+            ++num_messages;
         }
         else if ( strncmp( request_header.type, "PUSH", 4 ) == 0 )
         {
             // packet contains files to write to server's directory
             printf( "receiving files from client\n" );
             new_files = write_files( client_sock, request_header.length );
+
+            char* log_msg = "\tSent files to client:\n";
+
+            // get total length of message, including file names
+            size_t total_len = strlen( log_msg );
+
+            int i;
+            for ( i = 0; i < request_header.length; ++i )
+            {
+                // include length of string, adding two tabs at the beginning and newline at the end
+                total_len += strlen( new_files[i] ) + 3;
+            }
+
+
+            // allocate overall string and copy everything to it
+            activity_log[ num_messages ] = (char*) malloc( total_len );
+
+            // copy log message
+            strncpy( activity_log[ num_messages ], log_msg, strlen( log_msg ) );
+
+
+            // index of where to copy each part into the string
+            size_t index = strlen( log_msg );
+
+            // copy each file name, preceded by two tabs and followed by a newline
+            for ( i = 0; i < request_header.length; ++i )
+            {
+                // copy tabs
+                strncpy( &activity_log[ num_messages ][ index ], "\t\t", 2 );
+                index += 2;
+
+                // copy filename
+                strncpy( &activity_log[ num_messages ][ index ], new_files[i], strlen( new_files[i] ) );
+                index += strlen( new_files[i] );
+
+                // add newline
+                activity_log[ num_messages ][ index ] = '\n';
+                ++index;
+            }
+
+
+            // add the new message to the count
+            ++num_messages;
         }
         else if ( strncmp( request_header.type, "BYE!", 4 ) == 0 )
         {
@@ -480,7 +589,33 @@ void* threadMain( void* thread_arg )
             printf( "closing connection\n" );
             close( client_sock );
 
-            // exit loop
+            // get time
+            time( &t );
+            time_struct = localtime( &t );
+            time_str = asctime( time_struct );
+
+            // create log message with time that connection was closed
+
+            size_t initial_len = strlen( "\tConnection closed " );
+            size_t log_msg_len = initial_len + strlen( time_str ) + 2; // add two newline chars to the end
+
+            activity_log[ num_messages ] = (char*) malloc( log_msg_len );
+
+            // copy first part of message
+            strncpy( activity_log[ num_messages ], "\tConnection closed ", initial_len );
+
+            // copy time
+            strncpy( &activity_log[ num_messages ][ initial_len ], time_str, strlen( time_str ) );
+
+            // add newline chars at the end
+            activity_log[ num_messages ][ log_msg_len - 2 ] = '\n';
+            activity_log[ num_messages ][ log_msg_len - 1 ] = '\n';
+
+
+            // add the new message to the count
+            ++num_messages;
+
+            // exit loop to write log file and end
             break;
         }
 
@@ -493,10 +628,10 @@ void* threadMain( void* thread_arg )
             {
                 // double capacity, allocate new memory, and copy old contents
                 files_cap *= 2;
-                char** larger_mem = (char**) malloc( files_cap * sizeof( char* ) );
-                memcpy( client_files, larger_mem, num_files * sizeof( char* ) );
+                char** new_list = (char**) malloc( files_cap * sizeof( char* ) );
+                memcpy( client_files, new_list, num_files * sizeof( char* ) );
 
-                client_files = larger_mem;
+                client_files = new_list;
             }
 
             // add new files to list
@@ -506,24 +641,40 @@ void* threadMain( void* thread_arg )
                 // copy each file name into client_files and free memory
                 size_t file_name_len = strlen( new_files[i] );
 
-                client_files[ num_files + i ] = (char*) malloc( file_name_len );
-                strncpy( new_files[i], client_files[ num_files + i ], file_name_len );
+                client_files[ num_files ] = (char*) malloc( file_name_len );
+                strncpy( new_files[i], client_files[ num_files ], file_name_len );
 
                 free( new_files[i] );
+
+                ++num_files;
             }
 
-            num_files += request_header.length;
             free( new_files );
 
 
             // reset pointer
             new_files = NULL;
         }
+
+
+        // check whether the activity log needs to be expanded
+        if ( num_messages == log_cap )
+        {
+            // increase size of array and copy previous data
+            log_cap *= 2;
+
+            char** new_log = (char**) malloc( log_cap * sizeof( char* ) );
+            memcpy( new_log, activity_log, num_messages * sizeof( char* ) );
+
+            activity_log = new_log;
+        }
     }
 
 
     write_log_file( client_files, num_files, activity_log, num_messages, ip_addr );
 
+
+    free( thread_arg );
 
     return NULL;
 }
@@ -593,7 +744,11 @@ char** write_files( int client_sock, int length )
             continue;
         }
 
-				
+
+        // need to close file to reopen to write
+        fclose( open_file );
+
+
         // create file
         FILE* new_file = fopen( new_file_name, "w" );
         // write bytes to file
@@ -617,7 +772,7 @@ char** write_files( int client_sock, int length )
 }
 
 
-void write_log_file( char** client_files, int num_files, char** client_activity, int log_len, char* client_ip )
+void write_log_file( char** client_files, size_t num_files, char** client_activity, size_t log_len, char* client_ip )
 {
     // TODO: write client data to log file
 
@@ -633,11 +788,12 @@ void write_log_file( char** client_files, int num_files, char** client_activity,
     log_file_open = true;
 
     // string "Client: [IPaddress]\n" is the beginning of that client's info
-    size_t line_len = strlen( "Client: " ) + 15 + 1;
+    size_t line_len = strlen( "Client: " ) + 15 + 2;
 
     char begin_str[ line_len ];
     strncpy( begin_str, "Client: ", strlen( "Client: " ) );
     strncpy( &begin_str[ strlen( "Client: " ) ], client_ip, 15 );
+    begin_str[ line_len - 2 ] = '\n';
     begin_str[ line_len - 1 ] = '\0';
 
 
@@ -668,13 +824,51 @@ void write_log_file( char** client_files, int num_files, char** client_activity,
     // if not found, append entry to the end of the file
     if ( !found )
     {
+        // move to the end of the file
+        fseek( log_file, SEEK_END, SEEK_SET );
 
+        // add entry for this client
+        fprintf( log_file, "\n\n%s", begin_str );
+
+        // add entry for this client's files
+        fprintf( log_file, "Files:\n" );
+
+
+        // add each file from the list
+        int i;
+        for ( i = 0; i < num_files; ++i )
+        {
+            // write file name to list and free memory
+            fprintf( log_file, "%s\n", client_files[i] );
+
+            free( client_files[i] );
+        }
+
+
+        // add entry for this client's activity
+        fprintf( log_file, "\nActivity:\n" );
+
+        // add client activity from the last session
+        for ( i = 0; i < log_len; ++i )
+        {
+            // write each message to the activity list
+            fprintf( log_file, "%s", client_activity[i] );
+        }
+
+        // add separator after client entry
+        fprintf( log_file, "\n\n" );
+        fprintf( log_file, "------------------------------------------------------------" );
     }
     else
     {
+        // TODO: finish writing info to file
 
         // find position to add files
+        // seek to the first line that is just \n
+
+
         // find position to add activity
+        // seek to the next line that is just \n
 
         // navigate to client -- fseek
 
@@ -687,21 +881,4 @@ void write_log_file( char** client_files, int num_files, char** client_activity,
     // close log file
     fclose( log_file );
     log_file_open = false;
-
-
-    // free memory
-    int i;
-    for ( i = 0; i < num_files; ++i )
-    {
-        free( client_files[i] );
-    }
-
-    free( client_files );
-
-    for ( i = 0; i < log_len; ++i )
-    {
-        free( client_activity[i] );
-    }
-
-    free( client_activity );
 }

@@ -121,24 +121,7 @@ each DIFF request.
 To do:
 ------
 - testing
-    --> not sure how far we are in this, but at the very least, LIST seems to work
-- add arguments/changes so that music is in a specified directory, rather than the current one
-    --> good idea at least for the client, and maybe for the server, too
+    --> so far, LIST and PUSH (from the client side) seem to work well
 - storing information in the server about each client and writing it to a log file
 - architecture document (this should be last, and I'd like to ask what he expects from it)
-
-
-===============================================================================
-Tracy's question:
-
-+ For receiving the file content, one recv() call won't be enough because the size (in bytes) of the file content is quite large, while the packet size of TCP is limited. Therefore I make multiplerecv() calls until the total number of bytes received reaches the prefix.size. However, this cause another problem: How many bytes does it receive each time? If bytesRcv = 5, for instance, and totalBytesRecv so far has been 99, and prefix.size = 100. That means the next time, it will take 1 byte for the file we are retrieving and 4 bytes of the header of the next push_file struct. Therefore, currently I set bytesRcv buffer size to be 1. This slows down the process but it ensures correct receipt of bytes. Any idea for an alternative?
-
-    Rachel: I'll take a closer look at this and see if I can come up with some other ideas
-    to play around with. I like the way it is now; I think it's logical to pull one byte at a
-    time, but I can see how that would slow things down a lot with as big as our messages can
-    be. One idea might be to just pull as many bytes as possible each time and just keep track
-    of whether we've received all of the bytes yet (though this may pose a problem for PUSH 
-    messages, since we don't know exactly how big the whole packet will be). We may need to 
-    change a few things around in terms of what exactly we put in the headers, or we may need
-    to add end-of-message indicators after all.
 
