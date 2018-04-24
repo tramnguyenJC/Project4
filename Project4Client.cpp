@@ -498,6 +498,19 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
 }
 
 void leave(int sock){
+
+  // create BYE! message to send to server
+  struct header bye_header;
+  strncpy( bye_header.type, "BYE!", 4 );
+  bye_header.length = 0;
+
+  // create message
+  unsigned char buffer[ sizeof( struct header ) ];
+  memcpy( buffer, &bye_header, sizeof( struct header ) );
+
+  // send message to server and end connection
+  send( sock, buffer, sizeof( struct header ), 0 );
+
   close(sock); 
 }
 

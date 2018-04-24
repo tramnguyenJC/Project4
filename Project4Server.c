@@ -25,9 +25,7 @@ static char* log_file_name;
 
 /* Functions */
 
-/* Sends the given client a list
- * of .mp3 files in the server's
- * directory.
+/* Sends the given client a list of .mp3 files in the server's directory.
  */
 void list( int client_sock );
 
@@ -155,19 +153,19 @@ int main( int argc, char* argv[] )
 
 
         // passes client socket and ip address to the thread
-        struct thread_args* args = malloc( sizeof( struct thread_args ) );
+        struct thread_args* args = (struct thread_args*) malloc( sizeof( struct thread_args ) );
         args->client_sock = client;
 
         // get client IP address and copy into thread_args
         char* ip_addr = inet_ntoa( client_addr.sin_addr );
         strncpy( args->client_ip, ip_addr, 15 ); // IP address is 15 characters long
-        ip_addr[ 15 ] = '\0'; // terminate string
+        args->client_ip[ 15 ] = '\0'; // terminate string
 
         // create thread for client
         pthread_t threadID;
 
 
-        if ( pthread_create( &threadID, NULL, threadMain, (void*) &args ) != 0 )
+        if ( pthread_create( &threadID, NULL, threadMain, (void*) args ) != 0 )
         {
             fprintf( stderr, "creating thread failed\n" );
             exit(1);
@@ -177,9 +175,7 @@ int main( int argc, char* argv[] )
 }
 
 
-/* Sends the given client a list
- * of .mp3 files in the server's
- * directory.
+/* Sends the given client a list of .mp3 files in the server's directory.
  */
 void list( int client_sock )
 {
@@ -188,10 +184,12 @@ void list( int client_sock )
     char num[ 10 ];
     memset( num, 0, 10 );
 
+    // read in number of files
     fgets( num, 10, pipe );
     int num_files = atoi( num );
     
     pclose( pipe );
+
 
     size_t file_count = 0;
     struct file_name files[ num_files ];
@@ -276,18 +274,20 @@ char** send_files( int client_sock, int length )
     size_t bytes_received = 0;
     size_t bytes_expected = length * sizeof( struct file_name );
 
+    // loop and try to read in however many bytes are remaining until all have been received
     while( bytes_received < bytes_expected )
     {
-        ssize_t new_bytes;
+        ssize_t new_bytes = recv( client_sock, &files[ bytes_received ], bytes_expected - bytes_received, 0 );
 
         // print error and exit if recv fails
-        if ( ( new_bytes = recv( client_sock, &files[ bytes_received ], bytes_expected - bytes_received, 0 ) ) < 0 )
+        if ( new_bytes < 0 )
         {
             fprintf( stderr, "recv() failed\n" );
             close( client_sock );
             exit(1);
         }
 
+        // add new bytes read in to overall count
         bytes_received += new_bytes;
     }
 
@@ -301,43 +301,22 @@ char** send_files( int client_sock, int length )
     // get the size of each requested file that is found
     int file_found_count = 0;
 
+
     int i;
     for ( i = 0; i < length; ++i )
     {
-        // get the size of this file
-        // command: find -iname '$[filename]' -printf '%b\n'
+        // get the size of this file (in bytes)
+        struct stat file_size;
+        int success = stat( files[file_found_count].filename, &file_size );
 
-        size_t name_len = strlen( files[file_found_count].filename );
-        size_t command_len = strlen( "find -iname '" );
-        size_t options_len = strlen( "' -printf '%s'\n" );
-
-        size_t len = command_len + name_len + options_len;
-
-        // copy command and filename for call
-        char command[ len + 1 ];
-
-        strncpy( command, "find -iname '", command_len );
-        strncpy( &command[command_len], files[file_found_count].filename, name_len );
-        strncpy( &command[command_len + name_len], "' -printf '%s'\n", options_len );
-
-        command[len] = '\0';
-
-        // gets size of file (in bytes)
-        FILE* pipe = popen( command, "r" );
-
-        char num[10];
-        memset( num, 0, 10 );
-
-        fgets( num, 10, pipe );
-        pclose( pipe );
+        unsigned int size = file_size.st_size;
 
 
-        unsigned int size = strtoul( num, 0, 10 );
-
-        // atoi returns 0 from an empty string, so
-        // zero indicates the file wasn't found
-        if ( size != 0 )
+        // stat() returns 0 to signal it successfully found the file
+        if ( success == 0 )
         {
+            size_t name_len = strlen( files[ file_found_count ].filename );
+
             // copy file name and size
             strncpy( file_sizes[file_found_count].name, files[file_found_count].filename, name_len );
             file_sizes[ file_found_count ].size = size;
@@ -451,7 +430,7 @@ void* threadMain( void* thread_arg )
     char* time_str = asctime( time_struct );
 
 
-    // add information for client connection
+    // add information for client connection to activity log string
     size_t start_len = strlen( time_str ) + strlen( "\tConnection " ) + 2;
     client_files[0] = malloc( start_len );
 
@@ -470,19 +449,37 @@ void* threadMain( void* thread_arg )
     char** new_files = NULL;
 
 
+    // ends the loop when the client sends message indicating end of connection
+    boolean connection_open = true;
+
     // infinite loop waiting for client message
-    while ( true )
+    while ( connection_open )
     {
         size_t header_len = sizeof( struct header );
         unsigned char buffer[ header_len ];
 
-        // first just read in the header to check message type
-        if ( recv( client_sock, buffer, header_len, 0 ) < 0 )
+        // first just read in message header to check message type
+        size_t bytes_received = 0;
+        size_t bytes_expected = sizeof( struct header );
+
+        // make sure all bytes of header get read in correctly
+        while( bytes_received < bytes_expected )
         {
-            fprintf( stderr, "recv() failed\n" );
-            close( client_sock );
-            exit(1);
+            // read in up to the full header
+            int new_bytes = recv( client_sock, buffer, bytes_expected - bytes_received, 0 );
+
+            // if there's an error, print and exit
+            if ( new_bytes < 0 )
+            {
+                fprintf( stderr, "recv() failed: %s\n", strerror( errno ) );
+                close( client_sock );
+                exit(1);
+            }
+
+            // update received count based on the last call
+            bytes_received += new_bytes;
         }
+
        
         // copy header into struct for parsing
         struct header request_header;
@@ -648,8 +645,8 @@ void* threadMain( void* thread_arg )
             // add the new message to the count
             ++num_messages;
 
-            // exit loop to write log file and end
-            break;
+
+            connection_open = false;
         }
 
 
@@ -704,6 +701,7 @@ void* threadMain( void* thread_arg )
     }
 
 
+    // write information collected about client to log file
     write_log_file( client_files, num_files, activity_log, num_messages, ip_addr );
 
 
@@ -723,6 +721,7 @@ void* threadMain( void* thread_arg )
     free( activity_log );
     free( thread_arg );
 
+
     return NULL;
 }
 
@@ -741,21 +740,37 @@ char** write_files( int client_sock, int length )
     for ( i = 0; i < length; ++i )
     {
         struct push_file prefix;
-        // read in file prefix with name and size
-    
-        if (recv( client_sock, &prefix, sizeof( struct push_file ), 0 ) < 0 )
+
+        // read in file prefix that contains name and size
+
+        size_t bytes_received = 0;
+        size_t bytes_expected = sizeof( struct push_file );
+
+        // make sure all bytes get received correctly
+
+        while( bytes_received < bytes_expected )
         {
-            fprintf( stderr, "recv() failed\n" );
-            close( client_sock );
-            exit(1);
+            // get up to the entire packet
+            ssize_t new_bytes = recv( client_sock, &prefix, bytes_expected - bytes_received, 0 );
+
+            if ( new_bytes < 0 )
+            {
+                fprintf( stderr, "recv() failed\n" );
+                close( client_sock );
+                exit(1);
+            }
+
+            // update based on the number of bytes read in
+            bytes_received += new_bytes;
         }
+
 
         printf("Saving file: %s...", prefix.name);
  
         // read in contents of file
 
-        size_t bytes_received = 0;
-        size_t bytes_expected = prefix.size;
+        bytes_received = 0;
+        bytes_expected = prefix.size;
 
         unsigned char file[ bytes_expected ];
 
