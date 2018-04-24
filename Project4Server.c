@@ -526,7 +526,7 @@ void* threadMain( void* thread_arg )
             printf( "processing PULL request\n" );
             new_files = send_files( client_sock, request_header.length );
 
-            char* log_msg = "\tReceived files from client:\n";
+            char* log_msg = "\tSent files to client:\n";
 
             size_t total_len = strlen( log_msg );
 
@@ -581,7 +581,7 @@ void* threadMain( void* thread_arg )
 
             new_files = write_files( client_sock, request_header.length );
 
-            char* log_msg = "\tSent files to client:\n";
+            char* log_msg = "\tReceived files from client:\n";
 
             // get total length of message, including file names
             size_t total_len = strlen( log_msg );
@@ -679,6 +679,7 @@ void* threadMain( void* thread_arg )
                 client_files = new_list;
             }
 
+
             // add new files to list
             int i;
             for ( i = 0; i < request_header.length; ++i )
@@ -687,7 +688,7 @@ void* threadMain( void* thread_arg )
                 size_t file_name_len = strlen( new_files[i] );
 
                 client_files[ num_files ] = (char*) malloc( file_name_len );
-                strncpy( new_files[i], client_files[ num_files ], file_name_len );
+                strncpy( client_files[ num_files ], new_files[i], file_name_len );
 
                 free( new_files[i] );
 
@@ -839,7 +840,7 @@ char** write_files( int client_sock, int length )
 
         // create file
         FILE* new_file = fopen( new_file_name, "w" );
-        
+
         // write bytes to file
         fwrite( file, sizeof(char), prefix.size, new_file );
         fclose( new_file );
@@ -939,7 +940,7 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
         for ( i = 0; i < num_files; ++i )
         {
             // write file name to list
-            fputs( client_files[i], log_file );
+            fprintf( log_file, "\t%s\n", client_files[i] );
         }
 
 
