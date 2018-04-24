@@ -12,10 +12,10 @@ struct thread_args
 
 // tracks whether a thread is currently writing the log file
 // that contains information about each client
-boolean log_file_open = false;
+static boolean log_file_open = false;
 
 // name of the file to which log information should be written
-char* log_file_name;
+static char* log_file_name;
 
 
 
@@ -480,8 +480,9 @@ void* threadMain( void* thread_arg )
 
             // add request to client activity information
             char* log_msg = "\tLIST request\n";
-            activity_log[ num_messages ] = (char*) malloc( strlen( log_msg ) );
+            activity_log[ num_messages ] = (char*) malloc( strlen( log_msg ) + 1 );
             strncpy( activity_log[ num_messages ], log_msg, strlen( log_msg ) );
+            activity_log[ num_messages ][ strlen( log_msg ) ] = '\0';
 
             // add the new message to the count
             ++num_messages;
@@ -504,6 +505,10 @@ void* threadMain( void* thread_arg )
                 total_len += strlen( new_files[i] ) + 3;
             }
 
+            // account for null terminator
+            ++total_len;
+
+
             // allocate overall string and copy everything to it
             activity_log[ num_messages ] = (char*) malloc( total_len );
 
@@ -511,7 +516,7 @@ void* threadMain( void* thread_arg )
             strncpy( activity_log[ num_messages ], log_msg, strlen( log_msg ) );
 
 
-            // index of where to copy each part into the string
+            // keeps the index of where to copy each subsequent part into the string
             size_t index = strlen( log_msg );
 
             // copy each file name, preceded by two tabs and followed by a newline
@@ -529,6 +534,8 @@ void* threadMain( void* thread_arg )
                 activity_log[ num_messages ][ index ] = '\n';
                 ++index;
             }
+
+            activity_log[ num_messages ][ total_len - 1 ] = '\0';
 
 
             // add the new message to the count
@@ -548,9 +555,12 @@ void* threadMain( void* thread_arg )
             int i;
             for ( i = 0; i < request_header.length; ++i )
             {
-                // include length of string, adding two tabs at the beginning and newline at the end
+                // include length of string, prepending two tabs and a newline
                 total_len += strlen( new_files[i] ) + 3;
             }
+
+            // account for null terminator
+            ++total_len;
 
 
             // allocate overall string and copy everything to it
@@ -579,6 +589,8 @@ void* threadMain( void* thread_arg )
                 ++index;
             }
 
+            activity_log[ num_messages ][ total_len - 1 ] = '\0';
+
 
             // add the new message to the count
             ++num_messages;
@@ -596,8 +608,8 @@ void* threadMain( void* thread_arg )
 
             // create log message with time that connection was closed
 
-            size_t initial_len = strlen( "\tConnection closed " );
-            size_t log_msg_len = initial_len + strlen( time_str ) + 2; // add two newline chars to the end
+            size_t initial_len = strlen( "Connection closed " );
+            size_t log_msg_len = initial_len + strlen( time_str ) + 2; // account for newline and null terminator
 
             activity_log[ num_messages ] = (char*) malloc( log_msg_len );
 
@@ -607,9 +619,8 @@ void* threadMain( void* thread_arg )
             // copy time
             strncpy( &activity_log[ num_messages ][ initial_len ], time_str, strlen( time_str ) );
 
-            // add newline chars at the end
             activity_log[ num_messages ][ log_msg_len - 2 ] = '\n';
-            activity_log[ num_messages ][ log_msg_len - 1 ] = '\n';
+            activity_log[ num_messages ][ log_msg_len - 1 ] = '\0';
 
 
             // add the new message to the count
@@ -774,8 +785,6 @@ char** write_files( int client_sock, int length )
 
 void write_log_file( char** client_files, size_t num_files, char** client_activity, size_t log_len, char* client_ip )
 {
-    // TODO: write client data to log file
-
     // check if log file is open in another thread
     while ( log_file_open )
     {
@@ -804,13 +813,16 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
     boolean found = false;
     fpos_t start_pos;
 
+    // a line will be an absolute maximum of 258 chars -- at most filename + two tabs and newline
+    int line_max = 258;
+
     // iterate until line is found or at the end of file
     while( !found && !feof( log_file ) )
     {
-        // line has a max of 255 chars + up to two tabs and newline
-        char line[ 258 ];
+        char line[ line_max ];
+        memset( line, 0, line_max );
 
-        fgets( line, 258, log_file );
+        fgets( line, line_max, log_file );
 
         // the beginning line will always be line_len characters long
         if ( strncmp( line, begin_str, line_len ) == 0 )
@@ -821,14 +833,14 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
     }
 
 
-    // if not found, append entry to the end of the file
+    // if the client was not found in the file, append a new entry to the end of the file
     if ( !found )
     {
         // move to the end of the file
         fseek( log_file, SEEK_END, SEEK_SET );
 
         // add entry for this client
-        fprintf( log_file, "\n\n%s", begin_str );
+        fprintf( log_file, "%s", begin_str );
 
         // add entry for this client's files
         fprintf( log_file, "Files:\n" );
@@ -839,7 +851,7 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
         for ( i = 0; i < num_files; ++i )
         {
             // write file name to list and free memory
-            fprintf( log_file, "%s\n", client_files[i] );
+            fputs( client_files[i], log_file );
 
             free( client_files[i] );
         }
@@ -852,33 +864,85 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
         for ( i = 0; i < log_len; ++i )
         {
             // write each message to the activity list
-            fprintf( log_file, "%s", client_activity[i] );
+            fputs( client_activity[i], log_file );
+
+            free( client_activity[i] );
         }
 
-        // add separator after client entry
+        // add two extra \n\n chars to separate client entries
         fprintf( log_file, "\n\n" );
-        fprintf( log_file, "------------------------------------------------------------" );
     }
     else
     {
-        // TODO: finish writing info to file
-
         // find position to add files
-        // seek to the first line that is just \n
+        // the line "Files:\n" marks the beginning of the list
+        // and should come right after the line specifying client name (so no searching required)
+        char line[ line_max ];
+        memset( line, 0, line_max );
+
+        fgets( line, line_max, log_file );
+
+        // append files to the beginning of the list (for simplicity's sake)
+        int i;
+        for ( i = 0; i < num_files; ++i )
+        {
+            // copy each filename to the file
+            fputs( client_files[i], log_file );
+
+            free( client_files[i] );
+        }
+
 
 
         // find position to add activity
-        // seek to the next line that is just \n
+        // the line "Activity:\n" marks the beginning of the client activity log
+        while( strncmp( line, "Activity:\n", strlen( "Activity:\n" ) ) != 0 )
+        {
+            memset( line, 0, line_max );  // erase old data before writing new line
+            fgets( line, line_max, log_file );
+        }
 
-        // navigate to client -- fseek
 
-        // append files, if any
+        // after the beginning of the activity log has been found
+        // need to seek until finding a line that is just \n,
+        // which indicates the end of the existing list
+
+        // keep track of the previous position to seek back there once the end of the log is found
+        fpos_t prev_pos;
+        fgetpos( log_file, &prev_pos );
+
+        memset( line, 0, line_max );  // erase old data before writing new line
+        fgets( line, line_max, log_file );
+
+        while( strncmp( line, "\n", 1 ) != 0 )
+        {
+            fgetpos( log_file, &prev_pos );
+
+            memset( line, 0, line_max );  // erase old data before writing new line
+            fgets( line, line_max, log_file );
+        }
 
         // append activity
+
+        // reset position to just before log end
+        fsetpos( log_file, &prev_pos );
+
+        // add client message strings to log
+        for ( i = 0; i < log_len; ++i )
+        {
+            // write each message to the activity log
+            fputs( client_activity[i], log_file );
+
+            free( client_activity[i] );
+        }
+
     }
 
 
-    // close log file
+    // close log file, indicate that it is free, free memory, and return
     fclose( log_file );
     log_file_open = false;
+
+    free( client_activity );
+    free( client_files );
 }
