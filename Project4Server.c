@@ -1,5 +1,4 @@
 #include <pthread.h>
-#include <time.h>
 #include <unistd.h>
 #include "Project4Header.h"
 
@@ -9,7 +8,7 @@ struct thread_args
 {
     int client_sock; // socket for client connection
     char client_ip[ 16 ]; // string of client's IP address
-}
+};
 
 // tracks whether a thread is currently writing the log file
 // that contains information about each client
@@ -205,7 +204,7 @@ void list( int client_sock )
     size_t header_len = sizeof( struct header );
     size_t data_len = sizeof( struct file_name ) * num_files;
 
-    int packet_len = header_len + data_len;
+    size_t packet_len = header_len + data_len;
 
     unsigned char packet[ packet_len ];
 
@@ -235,12 +234,12 @@ char** send_files( int client_sock, int length )
 
 
     // may need to make multiple calls to recv to get all bytes of packet
-    int bytes_received = 0;
-    int bytes_expected = length * sizeof( struct file_name );
+    size_t bytes_received = 0;
+    size_t bytes_expected = length * sizeof( struct file_name );
 
     while( bytes_received < bytes_expected )
     {
-        int new_bytes;
+        ssize_t new_bytes;
 
         // print error and exit if recv fails
         if ( ( new_bytes = recv( client_sock, &files[ bytes_received ], bytes_expected - bytes_received, 0 ) ) < 0 )
@@ -258,7 +257,7 @@ char** send_files( int client_sock, int length )
     struct push_file file_sizes[ length ];
 
     // keeps track of total size of packet
-    int packet_size = sizeof( struct header );
+    size_t packet_size = sizeof( struct header );
 
     // get the size of each requested file that is found
     int file_found_count = 0;
@@ -391,8 +390,8 @@ void* threadMain( void* thread_arg )
     int files_cap = 100;
     int log_cap = 100;
 
-    char** client_files = malloc( files_cap * sizeof(char*) );  // list of files sent to/received from client
-    char** activity_log = malloc( log_cap * sizeof(char*) );  // list of messages received from client
+    char** client_files = malloc( files_cap * sizeof( char* ) );  // list of files sent to/received from client
+    char** activity_log = malloc( log_cap * sizeof( char* ) );  // list of messages received from client
 
     int num_files = 0;  // number of files sent to/received from client
     int num_messages = 0;  // total number of messages received and logged
@@ -424,7 +423,7 @@ void* threadMain( void* thread_arg )
 
 
     // pointer to any new info about client files from messages
-    char** new_files = 0;
+    char** new_files = NULL;
 
 
     // infinite loop waiting for client message
@@ -457,12 +456,13 @@ void* threadMain( void* thread_arg )
             printf( "processing LIST request\n" );
             list( client_sock );
 
+
             // add request to client activity information
             char* log_msg = "\tLIST request";
             activity_log[ num_messages ] = (char*) malloc( strlen( log_msg ) );
 
         }
-        else if (  strncmp( request_header.type, "PULL", 4 ) == 0 )
+        else if ( strncmp( request_header.type, "PULL", 4 ) == 0 )
         {
             // request for the server to transmit specified files
             printf( "processing PULL request\n" );
@@ -485,21 +485,36 @@ void* threadMain( void* thread_arg )
         }
 
 
+        // add any new files to/from the client into the list
         if ( new_files != NULL )
         {
-            // TODO: add new files to list
-
             // check if the list is large enough and enlarge if needed
-            //if (  )
+            if ( num_files + request_header.length >= files_cap )
+            {
+                // double capacity, allocate new memory, and copy old contents
+                files_cap *= 2;
+                char** larger_mem = (char**) malloc( files_cap * sizeof( char* ) );
+                memcpy( client_files, larger_mem, num_files * sizeof( char* ) );
 
-            // free memory used for file names
+                client_files = larger_mem;
+            }
+
+            // add new files to list
             int i;
             for ( i = 0; i < request_header.length; ++i )
             {
+                // copy each file name into client_files and free memory
+                size_t file_name_len = strlen( new_files[i] );
+
+                client_files[ num_files + i ] = (char*) malloc( file_name_len );
+                strncpy( new_files[i], client_files[ num_files + i ], file_name_len );
+
                 free( new_files[i] );
             }
 
+            num_files += request_header.length;
             free( new_files );
+
 
             // reset pointer
             new_files = NULL;
@@ -537,8 +552,8 @@ char** write_files( int client_sock, int length )
  
         // read in contents of file
 
-        int bytes_received = 0;
-        int bytes_expected = prefix.size;
+        size_t bytes_received = 0;
+        size_t bytes_expected = prefix.size;
 
         unsigned char file[ bytes_expected ];
 
@@ -609,8 +624,8 @@ void write_log_file( char** client_files, int num_files, char** client_activity,
     // check if log file is open in another thread
     while ( log_file_open )
     {
-        // if so, wait 0.5s and try again until it is free
-        sleep( 0.5 );
+        // if so, wait 1s and try again until it is free
+        sleep( 1 );
     }
 
 
