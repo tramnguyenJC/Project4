@@ -1,7 +1,11 @@
-#include <pthread.h>
-#include <unistd.h>
 #include "Project4Header.h"
 
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
+
+/* Variables */
 
 // struct for arguments to each thread
 struct thread_args
@@ -9,6 +13,7 @@ struct thread_args
     int client_sock; // socket for client connection
     char client_ip[ 16 ]; // string of client's IP address
 };
+
 
 // tracks whether a thread is currently writing the log file
 // that contains information about each client
@@ -18,6 +23,7 @@ static boolean log_file_open = false;
 static char* log_file_name;
 
 
+/* Functions */
 
 /* Sends the given client a list
  * of .mp3 files in the server's
@@ -54,6 +60,9 @@ char** write_files( int client_sock, int length );
  */
 void write_log_file( char** client_files, size_t num_files, char** client_activity, size_t log_len, char* client_ip );
 
+
+
+/* main code */
 
 int main( int argc, char* argv[] )
 {
@@ -168,7 +177,10 @@ int main( int argc, char* argv[] )
 }
 
 
-
+/* Sends the given client a list
+ * of .mp3 files in the server's
+ * directory.
+ */
 void list( int client_sock )
 {
     // get number of music files in current directory
@@ -245,6 +257,12 @@ void list( int client_sock )
 }
 
 
+/* Sends the given client the files that correspond to the file names
+ * specified by the client. Reads in the entries from the client socket
+ * and responds with the specified files. The length describes the number
+ * of file requests in the client message (as specified by the header).
+ * Returns a list of the names of the files sent to the client.
+ */
 char** send_files( int client_sock, int length )
 {
     // get file names
@@ -397,6 +415,10 @@ char** send_files( int client_sock, int length )
 }
 
 
+/* Handles requests from a client and keeps log information. Once the
+ * client ends the connection, the log information is written to the
+ * server's log file.
+ */
 void* threadMain( void* thread_arg )
 {
     // get client socket and IP address from arg structure
@@ -685,12 +707,30 @@ void* threadMain( void* thread_arg )
     write_log_file( client_files, num_files, activity_log, num_messages, ip_addr );
 
 
+    // free variables
+    int i;
+    for ( i = 0; i < num_files; ++i )
+    {
+        free( client_files[i] );
+    }
+
+    for ( i = 0; i < num_messages; ++i )
+    {
+        free( activity_log[i] );
+    }
+
+    free( client_files );
+    free( activity_log );
     free( thread_arg );
 
     return NULL;
 }
 
 
+/* Reads in length push_file structs and corresponding files from the client
+ * and writes them to the server's directory. Returns a list of the file names
+ * received from the client.
+ */
 char** write_files( int client_sock, int length )
 {
     // array of file names to return
@@ -778,11 +818,17 @@ char** write_files( int client_sock, int length )
         added_files[i][ file_name_len ] = '\0';
     }
 
-
     return added_files;
 }
 
 
+/* Appends information to the file specified by log_file_name. If the client
+ * IP address client_ip is not in the file, an entry for that address is added.
+ * The file names specified in client_files are appended to the list of files the
+ * server has sent and received from the client. The messages stored in client_activity
+ * are appended to the client's activity. The length of the list of files is in
+ * num_files, and the length of the activity log is in log_len.
+ */
 void write_log_file( char** client_files, size_t num_files, char** client_activity, size_t log_len, char* client_ip )
 {
     // check if log file is open in another thread
@@ -807,14 +853,16 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
 
 
 
-    FILE* log_file = fopen( log_file_name, "a+" );
+    // first open in read mode to search for client
+    FILE* log_file = fopen( log_file_name, "r" );
 
     // search file for beginning of client's information
     boolean found = false;
-    fpos_t start_pos;
 
     // a line will be an absolute maximum of 258 chars -- at most filename + two tabs and newline
     int line_max = 258;
+
+    long client_pos; // position of this client's entry, if found
 
     // iterate until line is found or at the end of file
     while( !found && !feof( log_file ) )
@@ -828,121 +876,167 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
         if ( strncmp( line, begin_str, line_len ) == 0 )
         {
             found = true;
-            fgetpos( log_file, &start_pos );
+            client_pos = ftell( log_file );
         }
     }
+    fclose( log_file );
 
 
     // if the client was not found in the file, append a new entry to the end of the file
     if ( !found )
     {
-        // move to the end of the file
-        fseek( log_file, SEEK_END, SEEK_SET );
+        // open file to append to end
+        log_file = fopen( log_file_name, "a" );
 
-        // add entry for this client
-        fprintf( log_file, "%s", begin_str );
+        // add entry for this client, preceded by newlines to separate entries
+        fputs( "\n\n", log_file );
+        fputs( begin_str, log_file );
 
         // add entry for this client's files
-        fprintf( log_file, "Files:\n" );
+        fputs( "Files:\n", log_file );
 
 
         // add each file from the list
         int i;
         for ( i = 0; i < num_files; ++i )
         {
-            // write file name to list and free memory
+            // write file name to list
             fputs( client_files[i], log_file );
-
-            free( client_files[i] );
         }
 
 
         // add entry for this client's activity
-        fprintf( log_file, "\nActivity:\n" );
+        fputs( "\nActivity:\n", log_file );
 
         // add client activity from the last session
         for ( i = 0; i < log_len; ++i )
         {
             // write each message to the activity list
             fputs( client_activity[i], log_file );
-
-            free( client_activity[i] );
         }
 
-        // add two extra \n\n chars to separate client entries
-        fprintf( log_file, "\n\n" );
+
+        fclose( log_file );
     }
     else
     {
-        // find position to add files
-        // the line "Files:\n" marks the beginning of the list
-        // and should come right after the line specifying client name (so no searching required)
-        char line[ line_max ];
-        memset( line, 0, line_max );
+        log_file = fopen( log_file_name, "r" );
 
-        fgets( line, line_max, log_file );
+        // get size of log file
+        struct stat file_size;
+        stat( log_file_name, &file_size );
 
-        // append files to the beginning of the list (for simplicity's sake)
+
+        // get total number of bytes to write to the file
+        size_t new_info_len = 0;
+
         int i;
         for ( i = 0; i < num_files; ++i )
         {
-            // copy each filename to the file
-            fputs( client_files[i], log_file );
-
-            free( client_files[i] );
+            new_info_len += strlen( client_files[i] );
         }
 
-
-
-        // find position to add activity
-        // the line "Activity:\n" marks the beginning of the client activity log
-        while( strncmp( line, "Activity:\n", strlen( "Activity:\n" ) ) != 0 )
+        for( i = 0; i < log_len; ++i )
         {
-            memset( line, 0, line_max );  // erase old data before writing new line
-            fgets( line, line_max, log_file );
+            new_info_len += strlen( client_activity[i] );
         }
 
 
-        // after the beginning of the activity log has been found
-        // need to seek until finding a line that is just \n,
-        // which indicates the end of the existing list
+        // allocate a buffer big enough for the file and new information
+        // add space for \0 and to add an extra line between client sessions
+        size_t buff_size = new_info_len + file_size.st_size + 3;
+        char buffer[ buff_size ];
+        memset( buffer, 0, buff_size );
 
-        // keep track of the previous position to seek back there once the end of the log is found
-        fpos_t prev_pos;
-        fgetpos( log_file, &prev_pos );
+        size_t buffer_index = 0;
 
-        memset( line, 0, line_max );  // erase old data before writing new line
+        // copy file to buffer up to this client's entry
+        fread( buffer, 1, client_pos, log_file );
+
+        buffer_index += client_pos;
+
+        // the next line should be "Files:\n"
+        fgets( &buffer[ buffer_index ], line_max, log_file );
+        buffer_index += strlen( "Files:\n" );
+
+        // append the list of files after this
+        for ( i = 0; i < num_files; ++i )
+        {
+            size_t file_len = strlen( client_files[i] );
+            strncpy( &buffer[ buffer_index ], client_files[i], file_len );
+            buffer_index += file_len;
+        }
+
+
+        // navigate until the beginning of the activity log
+        // starts with the line "Activity:\n"
+        char line[ line_max ];
+        memset( line, 0, line_max );
         fgets( line, line_max, log_file );
 
-        while( strncmp( line, "\n", 1 ) != 0 )
+        while( strncmp( line, "Activity:\n", strlen( "Activity:\n" ) ) != 0 )
         {
-            fgetpos( log_file, &prev_pos );
+            // copy next line of file to buffer
+            strncpy( &buffer[ buffer_index ], line, strlen( line ) );
+            buffer_index += strlen( line );
 
-            memset( line, 0, line_max );  // erase old data before writing new line
+            // erase old data and copy in the next line
+            memset( line, 0, line_max );
             fgets( line, line_max, log_file );
         }
 
-        // append activity
 
-        // reset position to just before log end
-        fsetpos( log_file, &prev_pos );
-
-        // add client message strings to log
-        for ( i = 0; i < log_len; ++i )
+        // navigate to the end of the activity log
+        // if not EOF, will be a line with just \n-- this should be added after writing the new data
+        while( strncmp( line, "\n", 1 ) != 0 && feof( log_file ) == 0 )
         {
-            // write each message to the activity log
-            fputs( client_activity[i], log_file );
+            // copy next line to buffer
+            strncpy( &buffer[ buffer_index ], line, strlen( line ) );
+            buffer_index += strlen( line );
 
-            free( client_activity[i] );
+            // erase old line and get the next one
+            memset( line, 0, line_max );
+            fgets( line, line_max, log_file );
         }
 
+
+        // add to the client's activity log
+
+        // first add a line separating this session from past ones
+        strncpy( &buffer[ buffer_index ], "\t\n", 2 );
+        buffer_index += 2;
+
+        for ( i = 0; i < log_len; ++i )
+        {
+            // copy each message to the buffer
+            size_t msg_len = strlen( client_activity[i] );
+
+            strncpy( &buffer[ buffer_index ], client_activity[i], msg_len );
+            buffer_index += msg_len;
+        }
+
+        // add the \n at the new end of the log if not at the end of the file
+        if ( feof( log_file ) == 0 )
+        {
+            buffer[ buffer_index ] = '\n';
+            ++buffer_index;
+        }
+
+
+        // read the rest of the file into the buffer
+        size_t remaining_bytes = file_size.st_size - buffer_index;
+        fread( &buffer[ buffer_index ], 1, remaining_bytes, log_file );
+
+        buffer[ buff_size - 1 ] = '\0';
+
+
+        // rewrite everything to the log file and close it
+        log_file = freopen( 0, "w", log_file );
+        fputs( buffer, log_file );
+        fclose( log_file );
     }
 
 
-    // close log file, indicate that it is free, free memory, and return
-    fclose( log_file );
+    // indicate that the log file is free and return
     log_file_open = false;
-
-    free( client_activity );
-    free( client_files );
 }
