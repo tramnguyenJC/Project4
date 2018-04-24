@@ -1,0 +1,18 @@
+Client: 141.166.207.144
+Files:
+	file1
+	file2
+	file3
+
+Activity:
+	Connection $[Date and time]
+	LIST request
+	Received files from client:
+		$[file names]
+	Sent files to client:
+		$[file names]
+	Connection closed $[date and time]
+
+	Connection $[date and time]
+	...
+	Connection closed $[date and time]
