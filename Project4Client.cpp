@@ -222,7 +222,8 @@ void list(int sock){
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
   std::unordered_map<std::string, std::vector<std::string>> filesOnClient = getFilesOnClient();
-
+	
+	printf("\n");
   printf("+ List of files on server:\n");
   for(int i = 0; i < num_files; i++){
 
@@ -237,8 +238,10 @@ void list(int sock){
     if(search == filesOnClient.end())
       printf("File: %s \n", file.filename);
     else{
+    	printf("File: %s (duplicate content with ", file.filename);
       for(auto& name : search->second)
-      	printf("File: %s (duplicate content with %s) \n", file.filename, name.c_str());
+      	printf(" %s ", name.c_str());
+    	printf(")\n");
     }
   }
   printf("\n");
@@ -257,6 +260,7 @@ void diff(int sock){
   std::unordered_map<std::string, std::vector<std::string>> filesOnClient = 
   	getFilesOnClient();
 	std::vector<std::string> sameHash;
+	printf("\n");
   printf("+ List of files on server the client doesn't have:\n");
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];
@@ -348,6 +352,7 @@ void syncFiles(int sock){
 	std::vector<std::string> filesToSend;
 	std::vector<std::string> filesToRequest;
 	
+	printf("\n");
 	printf("+ List of files server needs to send to client: \n");
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];

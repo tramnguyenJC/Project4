@@ -69,7 +69,7 @@ int main( int argc, char* argv[] )
     // parse arguments to get port
     if ( argc != 5 )
     {
-        fprintf( stderr, "Usage: ./Project4Server -p <port> -l <log file name>\n" );
+        fprintf( stderr, "Usage: ./Project4Server -l <log file name> -p <port>\n" );
         exit(1);
     }
     else
@@ -81,7 +81,7 @@ int main( int argc, char* argv[] )
             {
                 if ( argv[i][1] == 'p' )
                 {
-                    port = htons( atoi( argv[ 2 ] ) );
+                    port = htons( atoi( argv[ 4 ] ) );
                 }
                 else if ( argv[i][1] == 'l' )
                 {
@@ -94,7 +94,7 @@ int main( int argc, char* argv[] )
                 }
                 else
                 {
-                    fprintf( stderr, "Usage: ./Project4Server -p <port> -l <log file name>\n" );
+                    fprintf( stderr, "Usage: ./Project4Server -l <log file name> -p <port>\n" );
                     exit(1);
                 }
             }
