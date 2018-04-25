@@ -121,7 +121,9 @@ each DIFF request.
 To do:
 ------
 - testing
-    --> so far, LIST and PUSH (from the client side) seem to work well
-- storing information in the server about each client and writing it to a log file
-- architecture document (this should be last, and I'd like to ask what he expects from it)
+    --> there is sometimes an issue where multiple list requests don't work
+        further, on the first request the client lists empty file names, so that's
+        probably a related issue
+    --> there is sometimes a seg fault in the client when syncing; this may be the
+        same issue as before
 
