@@ -180,7 +180,7 @@ unsigned char* getFilenamesOnServer(int sock){
 	struct header request_header;
   request_header.length = 0;
   const char* msg_type = "LIST";
-  memcpy( &(request_header.type), msg_type, 4 );
+  memcpy( request_header.type, msg_type, 4 );
 
   // Send a request with no data, only header
   int header_len = sizeof(struct header);
@@ -257,8 +257,8 @@ void list(int sock){
 	memcpy(&num_files, dataBuffer, 4);
 
   // copy file names
-	struct file_name* files = (struct file_name*) malloc( sizeof(file_name)*num_files );
-	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
+	struct file_name* files = (struct file_name*) malloc( sizeof(struct file_name)*num_files );
+	memcpy( files, &dataBuffer[4], sizeof(struct file_name)*num_files );
 	
   
   // If the server sends no files
@@ -273,22 +273,19 @@ void list(int sock){
 	printf("\n");
   printf("+ List of files on server:\n");
   for(int i = 0; i < num_files; i++){
-
-    // Store appropriate data into a file_name struct for each file name
-    struct file_name file = files[i];
     
     // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
-    std::string hashStr(file.hash);
+    std::string hashStr(files[i].hash);
     std::unordered_map<std::string, std::vector<std::string>>::const_iterator search
      = filesOnClient.find(hashStr);
 
     // print file name, adding a note if it is a duplicate of a server file
     if(search == filesOnClient.end()) {
-      printf("File: %s \n", file.filename);
+      printf("File: %s \n", files[i].filename);
     }
     else{
-    	printf("File: %s (duplicate content with ", file.filename);
+    	printf("File: %s (duplicate content with ", files[i].filename);
       for(auto& name : search->second)
       	printf(" %s ", name.c_str());
     	printf(")\n");
@@ -316,7 +313,7 @@ void diff(int sock){
 
   // copy file_name structs from packet
 	struct file_name* files = (struct file_name*) malloc( sizeof(file_name)*num_files );
-	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
+	memcpy( files, &dataBuffer[4], sizeof(file_name)*num_files );
 
   free(dataBuffer);
   
@@ -415,7 +412,7 @@ void diff(int sock){
 
     for ( size_t i = 0; i < diffFiles.size(); ++i )
     {
-      cout << endl << "File: " << diffFiles[i] << endl;
+      cout << "File: " << diffFiles[i] << endl;
     }
   }
   
@@ -494,10 +491,13 @@ std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient(){
 void syncFiles(int sock){
 
 	unsigned char* dataBuffer = getFilenamesOnServer(sock);
+
 	int num_files;
 	memcpy(&num_files, dataBuffer, 4);
-	struct file_name files[sizeof(file_name)*num_files];
-	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
+
+	struct file_name* files = (struct file_name*) malloc( sizeof(struct file_name)*num_files );
+	memcpy( files, &dataBuffer[4], sizeof(file_name)*num_files);
+
   free(dataBuffer);
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
@@ -508,68 +508,72 @@ void syncFiles(int sock){
 
 
   for(int i = 0; i < num_files; i++){
-    struct file_name file = files[i];
-    
-    std::string hashStr(file.hash);
-    std::unordered_map<std::string, std::vector<std::string>>::const_iterator search =
-    filesOnClient.find(hashStr);
-    if(search == filesOnClient.end()) {
-    	string filenameStr(file.filename);
-    	filesToRequest.push_back(filenameStr);
-    }
-    else {
-      // remove leading ./ from directory path
-      string relativePath( &musicDir[2] );
+      struct file_name file = files[i];
+      
+      std::string hashStr(file.hash);
+      std::unordered_map<std::string, std::vector<std::string>>::const_iterator search =
+      filesOnClient.find(hashStr);
 
-      // get file name without leading directory -- name and /
-      int fileNameLen = search->second[0].length() - relativePath.length();
-      string nameWithoutDir = search->second[0].substr( relativePath.length() + 1, fileNameLen );
+      // if the file is not found, add it to the list to be requested
+      if(search == filesOnClient.end()) {
+      	string filenameStr(file.filename);
+      	filesToRequest.push_back(filenameStr);
+      }
+      else {
+        // remove leading ./ from directory path
+        string relativePath( &musicDir[2] );
 
+        // get file name without leading directory -- name and /
+        int fileNameLen = search->second[0].length() - relativePath.length();
+        string nameWithoutDir = search->second[0].substr( relativePath.length() + 1, fileNameLen );
 
-      // if the contents match, but the names don't,
-      // ask if the user wants to rename the local file
-      // to be consistent with the server's file name
-      if ( strncmp( file.filename, nameWithoutDir.c_str(), nameWithoutDir.length() ) != 0 )
-      {
-        cout << endl << "The following file(s) have the same content "
-        << "as " << file.filename << " on the server:" << endl;
-        for ( size_t i = 0; i < search->second.size(); ++i )
+        // if the contents match, but the names don't,
+        // ask if the user wants to rename the local file
+        // to be consistent with the server's file name
+
+        if ( strncmp( file.filename, nameWithoutDir.c_str(), nameWithoutDir.length() ) != 0 )
         {
-          cout << "\t" << search->second[i] << endl;
+          cout << endl << "The following file(s) have the same content "
+          << "as " << file.filename << " on the server:" << endl;
+          for ( size_t i = 0; i < search->second.size(); ++i )
+          {
+            cout << "\t" << search->second[i] << endl;
+          }
+
+          cout << "Would you like to rename the local file(s) to match the server files? "
+          << "(if there are multiple files, all but one will be deleted.)" 
+          << " Please enter 'y' to rename and merge files, and 'n' to keep "
+          << "duplicate files. \t";
+
+          // get user response
+          char response[2];
+          cin.getline( response, 2 );
+
+          if ( response[0] == 'y' || response[0] == 'Y' )
+          {
+             // rename all matching files to the server's filename
+             for ( size_t i = 0; i < search->second.size(); ++i )
+             {
+                 // prepend the client's directory path to the server's name
+               string name_w_path( musicDir );
+               name_w_path += "/";
+               name_w_path += file.filename;
+
+               rename( search->second[i].c_str(), name_w_path.c_str() );
+             }
+          }
+          else
+          {
+            cout << endl << "Files were not renamed." << endl;
+          }
+
         }
 
-        cout << "Would you like to rename the local file(s) to match the server files? "
-        << "(if there are multiple files, all but one will be deleted.)" 
-        << " Please enter 'y' to rename and merge files, and 'n' to keep "
-        << "duplicate files. \t";
-
-        // get user response
-        char response[2];
-        cin.getline( response, 2 );
-
-        if ( response[0] == 'y' || response[0] == 'Y' )
-        {
-           // rename all matching files to the server's filename
-         for ( size_t i = 0; i < search->second.size(); ++i )
-         {
-             // prepend the client's directory path to the server's name
-           string name_w_path( musicDir );
-           name_w_path += "/";
-           name_w_path += file.filename;
-
-           rename( search->second[i].c_str(), name_w_path.c_str() );
-         }
-       }
-       else
-       {
-        cout << endl << "Files were not renamed." << endl;
+        sameHash.push_back(search->first);
       }
-    }
-
-
-    sameHash.push_back(search->first);
+    
   }
-}
+
 
   printf("\n");
   printf("+ List of files server needs to send to client: \n");
@@ -580,8 +584,10 @@ void syncFiles(int sock){
 
     for ( size_t i = 0; i < filesToRequest.size(); ++i )
     {
-      printf( "File: %s", filesToRequest[i].c_str() );
+      printf( "File: %s\n", filesToRequest[i].c_str() );
     }
+
+    printf("\n");
 
     getFiles(sock, filesToRequest);
     printf("\nComplete sending files to the client.\n");
@@ -614,6 +620,7 @@ void syncFiles(int sock){
   }
 
   printf("\n");
+  free(files);
 }
 
 
