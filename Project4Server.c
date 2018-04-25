@@ -676,7 +676,7 @@ void* threadMain( void* thread_arg )
                 // double capacity, allocate new memory, and copy old contents
                 files_cap *= 2;
                 char** new_list = (char**) malloc( files_cap * sizeof( char* ) );
-                memcpy( client_files, new_list, num_files * sizeof( char* ) );
+                memcpy( new_list, client_files, num_files * sizeof( char* ) );
 
                 client_files = new_list;
             }
@@ -689,8 +689,9 @@ void* threadMain( void* thread_arg )
                 // copy each file name into client_files and free memory
                 size_t file_name_len = strlen( new_files[i] );
 
-                client_files[ num_files ] = (char*) malloc( file_name_len );
+                client_files[ num_files ] = (char*) malloc( file_name_len + 1 );
                 strncpy( client_files[ num_files ], new_files[i], file_name_len );
+                client_files[ num_files ][ file_name_len ] = '\0';
 
                 free( new_files[i] );
 
@@ -721,7 +722,6 @@ void* threadMain( void* thread_arg )
 
 
     printf( "thread %lu: writing log information...", threadID );
-    fflush( stdout );
 
     // write information collected about client to log file
     write_log_file( client_files, num_files, activity_log, num_messages, ip_addr );
@@ -973,7 +973,9 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
         int i;
         for ( i = 0; i < num_files; ++i )
         {
-            new_info_len += strlen( client_files[i] );
+            // need to add two \t at the beginning
+            // and \n at the end of each file name
+            new_info_len += strlen( client_files[i] ) + 2;
         }
 
         for( i = 0; i < log_len; ++i )
@@ -1002,9 +1004,18 @@ void write_log_file( char** client_files, size_t num_files, char** client_activi
         // append the list of files after this
         for ( i = 0; i < num_files; ++i )
         {
+            // add \t before file name
+            buffer[ buffer_index ] = '\t';
+            ++buffer_index;
+
+            // copy file name
             size_t file_len = strlen( client_files[i] );
             strncpy( &buffer[ buffer_index ], client_files[i], file_len );
             buffer_index += file_len;
+
+            // add \n after file name
+            buffer[ buffer_index ] = '\n';
+            ++buffer_index;
         }
 
 
