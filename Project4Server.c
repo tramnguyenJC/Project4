@@ -264,7 +264,7 @@ void list( int client_sock )
 char** send_files( int client_sock, int length )
 {
     // get file names
-    struct file_name files[ length ];
+    struct file_name* files = (struct file_name*) malloc( length * sizeof( struct file_name ) );
 
     // create return array of strings
     char** added_files = (char**) malloc( length * sizeof( char* ) );
@@ -375,7 +375,7 @@ char** send_files( int client_sock, int length )
         // then read in contents of file
         FILE* file = fopen( file_sizes[i].name, "r" );
 
-        unsigned char* buffer = (unsigned char*) malloc(file_sizes[i].size ) ;
+        unsigned char* buffer = (unsigned char*) malloc( file_sizes[i].size ) ;
 
         fread( buffer, 1, file_sizes[i].size, file );
 
@@ -384,6 +384,7 @@ char** send_files( int client_sock, int length )
         // copy contents of file to message
         memcpy( &packet[ current_index ], buffer, file_sizes[i].size );
         current_index += file_sizes[i].size;
+
         free(buffer);
     }
 
@@ -397,6 +398,7 @@ char** send_files( int client_sock, int length )
     }
 
     free( packet );
+    free( files );
 
     return added_files;
 }
@@ -799,7 +801,7 @@ char** write_files( int client_sock, int length )
         bytes_received = 0;
         bytes_expected = prefix.size;
 
-        unsigned char file[ bytes_expected ];
+        unsigned char* file = (unsigned char*) malloc( prefix.size );
 
         // read in bytes until the entire file has been received
         while ( bytes_received < bytes_expected )
@@ -853,6 +855,8 @@ char** write_files( int client_sock, int length )
         added_files[i] = (char*) malloc( file_name_len + 1 );
         strncpy( added_files[i], prefix.name, file_name_len );
         added_files[i][ file_name_len ] = '\0';
+
+        free( file );
     }
 
     return added_files;
