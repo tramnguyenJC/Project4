@@ -268,24 +268,94 @@ void diff(int sock){
   std::unordered_map<std::string, std::vector<std::string>> filesOnClient = 
   	getFilesOnClient();
 	std::vector<std::string> sameHash;
-	printf("\n");
-  printf("+ List of files on server the client doesn't have:\n");
+
+
+  // files on the server but not on the client
+  vector<string> diffFiles;
+
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];
+
     // Look up if the client has a file with the same hash std::string (same file content)
     // and print information accordingly
+
     std::string hashStr(file.hash);
     std::unordered_map<std::string,std::vector<std::string>>::const_iterator search = 
     	filesOnClient.find(hashStr);
+
     if(search == filesOnClient.end()) {
-      printf("File: %s \n", file.filename);
+      // add file to list of files on the server
+      string filename_str( file.filename );
+      diffFiles.push_back( filename_str );
     }
     else {
+
+      // remove leading ./ from directory path
+      string relativePath( &musicDir[2] );
+
+      // get file name without leading directory -- name and /
+      int fileNameLen = search->second[0].length() - relativePath.length();
+      string nameWithoutDir = search->second[0].substr( relativePath.length() + 1, fileNameLen );
+
+
+      // if the contents match, but the names don't,
+      // ask if the user wants to rename the local file
+      // to be consistent with the server's file name
+      if ( strncmp( file.filename, nameWithoutDir.c_str(), nameWithoutDir.length() ) != 0 )
+      {
+        cout << endl << "The following file(s) have the same content "
+             << "as " << file.filename << " on the server:" << endl;
+        for ( size_t i = 0; i < search->second.size(); ++i )
+        {
+          cout << "\t" << search->second[i] << endl;
+        }
+
+        cout << "Would you like to rename the local file(s) to match the server files? "
+             << "(if there are multiple files, all but one will be deleted.)" 
+             << " Please enter 'y' to rename and merge files, and 'n' to keep "
+             << "duplicate files. \t";
+
+        // get user response
+        char response[2];
+        cin.getline( response, 2 );
+
+        if ( response[0] == 'y' || response[0] == 'Y' )
+        {
+           // rename all matching files to the server's filename
+           for ( size_t i = 0; i < search->second.size(); ++i )
+           {
+             // prepend the client's directory path to the server's name
+             string name_w_path( musicDir );
+             name_w_path += "/";
+             name_w_path += file.filename;
+
+             rename( search->second[i].c_str(), name_w_path.c_str() );
+           }
+        }
+        else
+        {
+          cout << endl << "Files were not renamed." << endl;
+        }
+      }
+
     	sameHash.push_back(search->first);
     }
   }
-   if(sameHash.size() == (unsigned int)num_files) {
+
+  printf("\n\n");
+  printf("+ List of files on server the client doesn't have:\n");
+  
+  if(sameHash.size() == (unsigned int)num_files) {
   	printf("No such file found.\n");
+  }
+  else {
+
+    // print names of files on the server that the client doesn't have
+
+    for ( size_t i = 0; i < diffFiles.size(); ++i )
+    {
+      cout << endl << "File: " << diffFiles[i] << endl;
+    }
   }
   
   printf("\n");
@@ -364,27 +434,85 @@ void syncFiles(int sock){
 	std::vector<std::string> filesToSend;
 	std::vector<std::string> filesToRequest;
 	
-	printf("\n");
-	printf("+ List of files server needs to send to client: \n");
+
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];
     
     std::string hashStr(file.hash);
     std::unordered_map<std::string, std::vector<std::string>>::const_iterator search =
      filesOnClient.find(hashStr);
-    if(search == filesOnClient.end()){
+    if(search == filesOnClient.end()) {
     	string filenameStr(file.filename);
     	filesToRequest.push_back(filenameStr);
-    	printf("File %s \n", file.filename);
     }
-    else
+    else {
+      // remove leading ./ from directory path
+      string relativePath( &musicDir[2] );
+
+      // get file name without leading directory -- name and /
+      int fileNameLen = search->second[0].length() - relativePath.length();
+      string nameWithoutDir = search->second[0].substr( relativePath.length() + 1, fileNameLen );
+
+
+      // if the contents match, but the names don't,
+      // ask if the user wants to rename the local file
+      // to be consistent with the server's file name
+      if ( strncmp( file.filename, nameWithoutDir.c_str(), nameWithoutDir.length() ) != 0 )
+      {
+        cout << endl << "The following file(s) have the same content "
+             << "as " << file.filename << " on the server:" << endl;
+        for ( size_t i = 0; i < search->second.size(); ++i )
+        {
+          cout << "\t" << search->second[i] << endl;
+        }
+
+        cout << "Would you like to rename the local file(s) to match the server files? "
+             << "(if there are multiple files, all but one will be deleted.)" 
+             << " Please enter 'y' to rename and merge files, and 'n' to keep "
+             << "duplicate files. \t";
+
+        // get user response
+        char response[2];
+        cin.getline( response, 2 );
+
+        if ( response[0] == 'y' || response[0] == 'Y' )
+        {
+           // rename all matching files to the server's filename
+           for ( size_t i = 0; i < search->second.size(); ++i )
+           {
+             // prepend the client's directory path to the server's name
+             string name_w_path( musicDir );
+             name_w_path += "/";
+             name_w_path += file.filename;
+
+             rename( search->second[i].c_str(), name_w_path.c_str() );
+           }
+        }
+        else
+        {
+          cout << endl << "Files were not renamed." << endl;
+        }
+      }
+
+
     	sameHash.push_back(search->first);
+    }
   }
+
+  printf("\n");
+  printf("+ List of files server needs to send to client: \n");
+
   if(sameHash.size() == (unsigned int)num_files) {
   	printf("No such file found.\n");
   } else {
-  	getFiles(sock, filesToRequest);
-  	printf("\nComplete sending files to the client.\n");
+
+      for ( size_t i = 0; i < filesToRequest.size(); ++i )
+      {
+        printf( "File: %s", filesToRequest[i].c_str() );
+      }
+
+  	  getFiles(sock, filesToRequest);
+  	  printf("\nComplete sending files to the client.\n");
   }
   printf("\n");
 
