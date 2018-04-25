@@ -220,8 +220,7 @@ void list(int sock){
 	struct file_name files[sizeof(file_name)*num_files];
 	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
 	
-	  
-  cout << "Num files: " << num_files << endl;
+  
   // If the server sends no files
   if(num_files == 0){
     printf("Server has no file. \n");
