@@ -235,8 +235,9 @@ void list(int sock){
     std::string hashStr(file.hash);
     std::unordered_map<std::string, std::vector<std::string>>::const_iterator search
      = filesOnClient.find(hashStr);
-    if(search == filesOnClient.end())
+    if(search == filesOnClient.end()) {
       printf("File: %s \n", file.filename);
+    }
     else{
     	printf("File: %s (duplicate content with ", file.filename);
       for(auto& name : search->second)
@@ -269,13 +270,16 @@ void diff(int sock){
     std::string hashStr(file.hash);
     std::unordered_map<std::string,std::vector<std::string>>::const_iterator search = 
     	filesOnClient.find(hashStr);
-    if(search == filesOnClient.end())
+    if(search == filesOnClient.end()) {
       printf("File: %s \n", file.filename);
-    else
+    }
+    else {
     	sameHash.push_back(search->first);
+    }
   }
-   if(sameHash.size() == (unsigned int)num_files)
+   if(sameHash.size() == (unsigned int)num_files) {
   	printf("No such file found.\n");
+  }
   
   printf("\n");
   printf("+ List of files on client that server does not have:\n");
@@ -288,8 +292,9 @@ void diff(int sock){
   		}
   	}
   }
-  if(numFilesClientDiff == 0)
+  if(numFilesClientDiff == 0) {
   	printf("No such file found.\n");
+  }
   printf("\n");
 }
 
@@ -389,8 +394,9 @@ void syncFiles(int sock){
   		numFilesClientDiff++;
   	}
   }
-  if(numFilesClientDiff == 0)
+  if(numFilesClientDiff == 0) {
   	printf("No such file found.\n");
+  }
   sendFiles(sock, filesToSend);
   printf("\nComplete sending files to the server.\n");
   printf("\n");
