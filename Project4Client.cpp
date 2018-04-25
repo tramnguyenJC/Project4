@@ -13,6 +13,7 @@ using namespace std;
 //////////////////////////////////////////////////////////////////////////////
 // EXAMPLE TO RUN THIS FILE: ./Project4Client -d ./MusicFiles -s mathcs02:31100
 
+
 //////////////////////////////////////////////////////////////////////////////
 // @brief:Take name of host and return its internet address
 // @param name the name of the host
@@ -20,19 +21,23 @@ using namespace std;
 unsigned long ResolveName(const char name[]);
 
 //////////////////////////////////////////////////////////////////////////////
-// @brief: Print out instructions for user
+// @brief: Print out a list of valid instructions that the user can enter
 void printInstructions();
 
 //////////////////////////////////////////////////////////////////////////////
-// @brief: Print out instructions for user
+// @brief: Requests a list of files on the server and prints this for the user,
+// with a note for files that have the same content as files in musicDir.
 void list(int sock);
 
 //////////////////////////////////////////////////////////////////////////////
-// @brief: Show list of different files
+// @brief: Displays a list of files that are on the server but not the client
+// and files that are on the client but not the server.
 void diff(int sock);
 
 //////////////////////////////////////////////////////////////////////////////
-// @brief: Sync all files on the client and server side
+// @brief: Sync all files on the client and server side -- sends to the server
+// all files on the client that it doesn't have and retrieves from the server
+// all files that were included in the LIST that weren't found in musicDir.
 void syncFiles(int sock);
 
 //////////////////////////////////////////////////////////////////////////////
@@ -113,7 +118,7 @@ int main (int argc, char *argv[]) {
   serverAddr.sin_port = htons(serverPort);              // Server port 
   
   //Establish the connection to the echo server 
-  if (connect(sock, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) < 0){
+  if (connect(sock, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) < 0) {
     fprintf( stderr, "connect() failed\n" );
     exit(1);
   }
@@ -128,7 +133,8 @@ int main (int argc, char *argv[]) {
 
     // reads in user input and calls appropriate functions
     fgets(input, size, stdin);
-    if(strncmp(input, "list", 4) == 0){
+
+    if(strncmp(input, "list", 4) == 0) {
       list(sock);
     }
     else if(strncmp(input, "diff", 4) == 0){
@@ -149,6 +155,10 @@ int main (int argc, char *argv[]) {
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief:Take name of host and return its internet address
+// @param name the name of the host
+// @return the host's internet address
 unsigned long ResolveName(const char name[]) {
   struct hostent *host; // Structure containing host information
   if((host = gethostbyname(name)) == NULL){
@@ -160,7 +170,13 @@ unsigned long ResolveName(const char name[]) {
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Retrieves all file names currently on server
+// @return: a char buffer of size[sizeof(file_name)*file_counts + 4], with the 
+// first 4 bytes as the number of file names returned.
 unsigned char* getFilenamesOnServer(int sock){
+
+  // construct header
 	struct header request_header;
   request_header.length = 0;
   const char* msg_type = "LIST";
@@ -192,17 +208,24 @@ unsigned char* getFilenamesOnServer(int sock){
   // Continue receiving data from the server ad store data into dataBuffer
   size_t data_len = sizeof( struct file_name ) * num_files;
   unsigned char* dataBuffer = (unsigned char*) malloc(data_len + 4);
+
   memset(dataBuffer, 0, data_len + 4);
   memcpy(dataBuffer, &num_files, 4);
+
   int bytes_expected = data_len;
   int bytes_received = 0;
+
   if(num_files != 0){
+
+    // make calls to recv until all bytes have been read in
   	while (bytes_received < bytes_expected){
   		int new_bytes = recv(sock, &dataBuffer[bytes_received + 4], bytes_expected - bytes_received, 0);
+
 	  	if(new_bytes < 0) {
 	  		printf("recv() failed or connection closed prematurely.\n");
     		exit(1);
   		}
+
   		bytes_received += new_bytes;
   	}
   }
@@ -211,6 +234,8 @@ unsigned char* getFilenamesOnServer(int sock){
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Print out a list of valid instructions that the user can enter
 void printInstructions(){
   printf("Enter \'list\' to list all the files the server has.\n");
   printf("Enter \'diff\' to show a \"diff\" of the files you have in comparison to the server \n");
@@ -219,11 +244,20 @@ void printInstructions(){
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Requests a list of files on the server and prints this for the user,
+// with a note for files that have the same content as files in musicDir.
 void list(int sock){
+
+  // get list of files from server
 	unsigned char* dataBuffer = getFilenamesOnServer(sock);
+
+  // get number of included files from header
 	int num_files;
 	memcpy(&num_files, dataBuffer, 4);
-	struct file_name files[sizeof(file_name)*num_files];
+
+  // copy file names
+	struct file_name* files = (struct file_name*) malloc( sizeof(file_name)*num_files );
 	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
 	
   
@@ -248,6 +282,8 @@ void list(int sock){
     std::string hashStr(file.hash);
     std::unordered_map<std::string, std::vector<std::string>>::const_iterator search
      = filesOnClient.find(hashStr);
+
+    // print file name, adding a note if it is a duplicate of a server file
     if(search == filesOnClient.end()) {
       printf("File: %s \n", file.filename);
     }
@@ -258,22 +294,37 @@ void list(int sock){
     	printf(")\n");
     }
   }
+
   printf("\n");
+
   free(dataBuffer);
+  free(files);
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Displays a list of files that are on the server but not the client
+// and files that are on the client but not the server.
 void diff(int sock){
+
+  // get list of files on server -- names and hashes of files
   unsigned char* dataBuffer = getFilenamesOnServer(sock);
+
+  // get number of file names included from header
 	int num_files;
 	memcpy(&num_files, dataBuffer, 4);
-	struct file_name files[sizeof(file_name)*num_files];
+
+  // copy file_name structs from packet
+	struct file_name* files = (struct file_name*) malloc( sizeof(file_name)*num_files );
 	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
+
   free(dataBuffer);
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
   std::unordered_map<std::string, std::vector<std::string>> filesOnClient = 
   	getFilesOnClient();
+
+  // keeps track of the hashes of each duplicate file
 	std::vector<std::string> sameHash;
 
 
@@ -281,6 +332,7 @@ void diff(int sock){
   vector<string> diffFiles;
 
   for(int i = 0; i < num_files; i++){
+
     struct file_name file = files[i];
 
     // Look up if the client has a file with the same hash std::string (same file content)
@@ -345,9 +397,13 @@ void diff(int sock){
         }
       }
 
+      // add hash of the file to the list
     	sameHash.push_back(search->first);
     }
   }
+
+
+  // print names of files on the server that the client doesn't have, if any
 
   printf("\n\n");
   printf("+ List of files on server the client doesn't have:\n");
@@ -357,29 +413,33 @@ void diff(int sock){
   }
   else {
 
-    // print names of files on the server that the client doesn't have
-
     for ( size_t i = 0; i < diffFiles.size(); ++i )
     {
       cout << endl << "File: " << diffFiles[i] << endl;
     }
   }
   
+  // print file names on client but not server
   printf("\n");
   printf("+ List of files on client that server does not have:\n");
   int numFilesClientDiff = 0;
   for(auto& pair : filesOnClient){
+
   	if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
+
   		for(auto& name : pair.second){
       	printf("File: %s \n", name.c_str());
   			numFilesClientDiff++;
   		}
   	}
   }
+
   if(numFilesClientDiff == 0) {
   	printf("No such file found.\n");
   }
+
   printf("\n");
+  free(files);
 }
 
 std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient(){
@@ -427,6 +487,10 @@ std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient(){
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Sync all files on the client and server side -- sends to the server
+// all files on the client that it doesn't have and retrieves from the server
+// all files that were included in the LIST that weren't found in musicDir.
 void syncFiles(int sock){
 
 	unsigned char* dataBuffer = getFilenamesOnServer(sock);
@@ -507,52 +571,55 @@ void syncFiles(int sock){
   }
 }
 
-printf("\n");
-printf("+ List of files server needs to send to client: \n");
+  printf("\n");
+  printf("+ List of files server needs to send to client: \n");
 
-if(sameHash.size() == (unsigned int)num_files) {
- printf("No such file found.\n");
-} else {
+  if(sameHash.size() == (unsigned int)num_files) {
+   printf("No such file found.\n");
+  } else {
 
-  for ( size_t i = 0; i < filesToRequest.size(); ++i )
-  {
-    printf( "File: %s", filesToRequest[i].c_str() );
+    for ( size_t i = 0; i < filesToRequest.size(); ++i )
+    {
+      printf( "File: %s", filesToRequest[i].c_str() );
+    }
+
+    getFiles(sock, filesToRequest);
+    printf("\nComplete sending files to the client.\n");
+  }
+  printf("\n");
+
+
+  printf("\n");
+  printf("+ List of files client needs to send to server:\n");
+
+  int numFilesClientDiff = 0;
+
+  for(auto& pair : filesOnClient){
+   if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
+    for(auto& name : pair.second){
+     printf("File %s \n", name.c_str());
+     filesToSend.push_back(name);
+   }
+   numFilesClientDiff++;
   }
 
-  getFiles(sock, filesToRequest);
-  printf("\nComplete sending files to the client.\n");
-}
-printf("\n");
+  }
+  if(numFilesClientDiff == 0) {
+   printf("No such file found.\n");
+  }
 
+  else {
+   sendFiles(sock, filesToSend);
+   printf("\nComplete sending files to the server.\n");
+  }
 
-printf("\n");
-printf("+ List of files client needs to send to server:\n");
-
-int numFilesClientDiff = 0;
-
-for(auto& pair : filesOnClient){
- if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
-  for(auto& name : pair.second){
-   printf("File %s \n", name.c_str());
-   filesToSend.push_back(name);
- }
- numFilesClientDiff++;
-}
-
-}
-if(numFilesClientDiff == 0) {
- printf("No such file found.\n");
-}
-
-else {
- sendFiles(sock, filesToSend);
- printf("\nComplete sending files to the server.\n");
-}
-
-printf("\n");
+  printf("\n");
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Construct a "PULL" message with a list of struct pull_file (along with
+// the byte content of each file) for files that are on server but not on client
 void getFiles(int sock, std::vector<std::string> filesToRequest) {
   int length = filesToRequest.size();
   if(length == 0) {
@@ -588,6 +655,7 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
     close(sock);
     exit(1);
   }
+
   free(packet);
 
   //size_t header_len = sizeof( struct header );
@@ -684,6 +752,7 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
     size_t file_name_len = strlen(prefix.name) + strlen(musicDir) - 1;
     char nameWithDir[ file_name_len + 6];
     const char slash[1] = {'/'};
+
     memcpy(nameWithDir, &musicDir[2], strlen(musicDir)-2);
     memcpy(&nameWithDir[strlen(musicDir)-2], slash, strlen(slash));
     memcpy(&nameWithDir[strlen(musicDir)-1], prefix.name, strlen(prefix.name));
@@ -716,6 +785,9 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Construct a "PUSH" message with a list of struct push_file (along with
+// the byte content of each file) for files that are on client but not on server
 void sendFiles(int sock, std::vector<std::string> filesToSend){
 	int length = filesToSend.size();
   if(length == 0){
@@ -821,6 +893,8 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
 }
 
 
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Sends BYE message to server and terminate the connection.
 void leave(int sock){
 
   // create BYE! message to send to server
