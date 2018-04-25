@@ -391,9 +391,6 @@ void syncFiles(int sock){
 }
 
 
-
-
-
 void getFiles(int sock, std::vector<std::string> filesToRequest) {
   int length = filesToRequest.size();
   if(length == 0) {
@@ -403,7 +400,7 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
 
   size_t header_len = sizeof(struct header);
   size_t data_len = length*(sizeof(struct file_name));
-  size_t packet_size = header_len + data_len;
+  int packet_size = header_len + data_len;
 
   unsigned char* packet = (unsigned char*)malloc(packet_size);
   memset( packet, 0, packet_size );
@@ -419,7 +416,7 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
 
 
   for(int i = 0; i < length; i++) {
-    memcpy( &packet[ current_index ], filesToRequest[i].c_str(), sizeof( struct file_name ) );
+    memcpy( &packet[ current_index ], filesToRequest[i].c_str(), filesToRequest[i].length() );
     current_index += sizeof( struct file_name );
   }
 
@@ -463,6 +460,7 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
 
   int i;
   length = respond_header.length;
+
 
   for ( i = 0; i < length; ++i )
   {
@@ -553,12 +551,11 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
 }
 
 
-
-
-
-
 void sendFiles(int sock, std::vector<std::string> filesToSend){
 	int length = filesToSend.size();
+  if(length == 0){
+    return;
+  }
 	// struct for each file
   struct push_file file_sizes[ length ];
 

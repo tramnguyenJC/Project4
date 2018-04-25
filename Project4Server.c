@@ -278,7 +278,7 @@ char** send_files( int client_sock, int length )
         // for each struct, read remaining bytes until all bytes received
         // may need to make multiple calls to get all bytes
         size_t bytes_received = 0;
-        size_t bytes_expected = length * sizeof( struct file_name );
+        size_t bytes_expected = sizeof( struct file_name );
 
         while( bytes_received < bytes_expected )
         {
@@ -301,6 +301,7 @@ char** send_files( int client_sock, int length )
 
     // struct for each file
     struct push_file file_sizes[ length ];
+    memset( file_sizes, 0, length * sizeof( struct push_file ) );
 
     // keeps track of total size of packet
     size_t packet_size = sizeof( struct header );
@@ -326,6 +327,7 @@ char** send_files( int client_sock, int length )
 
             // copy file name and size
             strncpy( file_sizes[file_found_count].name, files[file_found_count].filename, name_len );
+            file_sizes[ file_found_count ].name[ name_len ] = '\0';
             file_sizes[ file_found_count ].size = size;
 
 
@@ -347,7 +349,7 @@ char** send_files( int client_sock, int length )
     }
 
     // construct response message
-    unsigned char packet[ packet_size ];
+    unsigned char* packet = (unsigned char*) malloc( packet_size );
     memset( packet, 0, packet_size );
 
 
@@ -394,6 +396,7 @@ char** send_files( int client_sock, int length )
         exit(1);
     }
 
+    free( packet );
 
     return added_files;
 }
@@ -790,7 +793,6 @@ char** write_files( int client_sock, int length )
         memcpy( &prefix, buffer, sizeof( struct push_file ) );
 
 
-        printf("Saving file: %s...", prefix.name);
  
         // read in contents of file
 
@@ -845,8 +847,6 @@ char** write_files( int client_sock, int length )
 		
         // rename to remove .part once the entire file is written
         rename( new_file_name, prefix.name );
-
-        printf( "complete\n" );
 
 
         // add file name to list to be returned
