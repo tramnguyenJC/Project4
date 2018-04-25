@@ -368,8 +368,9 @@ void syncFiles(int sock){
     else
     	sameHash.push_back(search->first);
   }
-  if(sameHash.size() == (unsigned int)num_files)
+  if(sameHash.size() == (unsigned int)num_files) {
   	printf("No such file found.\n");
+  }
 
   getFiles(sock, filesToRequest);
   printf("\nComplete sending files to the client.\n");
@@ -560,7 +561,7 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
     return;
   }
 	// struct for each file
-  struct push_file file_sizes[ length ];
+  struct push_file* file_sizes = (struct push_file*) malloc( length * sizeof( struct push_file) );
 
   // keeps track of total size of packet
   int packet_size = sizeof( struct header );
@@ -569,47 +570,26 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
 
   int i;
   for ( i = 0; i < length; ++i )
-  {
-    // get the size of this file
-    // command: find -iname '$[filename]' -printf '%s\n'
-    // [filename] must not contain slashes in the find command, therefore we
-    // strip off the directory path string in the filename
-    
-    // Size of music directory string (after stripped off 2 chars './' at the front,
-    // but add the '/' in between the directory and fileName
-   
-    size_t dir_len = strlen(musicDir) - 1;
-		size_t name_len = filesToSend[i].length() - dir_len;
-		char nameWithoutDir[name_len + 1];
-		strncpy(nameWithoutDir, &(filesToSend[i].c_str()[dir_len]), name_len);
-		nameWithoutDir[name_len] = '\0';
-		
-    size_t command_len = strlen( "find -iname '" );
-    size_t options_len = strlen( " -printf '%s'\n" );
-		size_t len = command_len + name_len + options_len;
-
-    // copy command and filename for call
-    char command[ len + 1 ];
-		strncpy( command, "find -iname '", command_len );
-    strncpy( &command[command_len], nameWithoutDir, name_len );
-    strncpy( &command[name_len + command_len], "' -printf '%s'\n", options_len );
-		command[ len ] = '\0';
-	
+  {	
     // gets size of file (in bytes)
-    FILE* pipe = popen( command, "r" );
-		char num[10];
-    memset( num, 0, 10 );
-	  fgets( num, 10, pipe );
-   	pclose( pipe );
-   	unsigned int size = strtoul( num, 0, 10 );
+    struct stat file_size;
+    int success = stat( filesToSend[i].c_str(), &file_size );
+
+    unsigned int size = file_size.st_size;
+
+    // strip path to get just file name
+    size_t dir_len = strlen(musicDir) - 1;
+    size_t name_len = filesToSend[i].length() - dir_len;
+    char nameWithoutDir[name_len + 1];
+    strncpy(nameWithoutDir, &(filesToSend[i].c_str()[dir_len]), name_len);
+    nameWithoutDir[name_len] = '\0';
 		
-    // atoi returns 0 from an empty string, so
-    // zero indicates the file wasn't found
-    if ( size != 0 ){
-      // copy file name (include path directory) and size
-      memset( file_sizes[file_found_count].name, 0, strlen(nameWithoutDir));
+    // stat() returns 0 to to signal it successfully found the file
+    if ( success == 0 ){
+      // copy file name (without path) and size
+      memset( &file_sizes[file_found_count], 0, sizeof( struct push_file ) );
       strncpy(file_sizes[file_found_count].name, nameWithoutDir, name_len);
-    	file_sizes[file_found_count].name[strlen(nameWithoutDir)] = '\0';
+    	file_sizes[file_found_count].name[ name_len ] = '\0';
       file_sizes[ file_found_count ].size = size;
   
       // update packet size to account for this file
@@ -621,7 +601,7 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
   }
   
   // construct response message
-  unsigned char* packet = (unsigned char*)malloc(packet_size);
+  unsigned char* packet = (unsigned char*) malloc(packet_size);
   memset( packet, 0, packet_size );
 	
   // create header and copy to message
@@ -669,7 +649,9 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
     close(sock);
     exit(1);
   }
+
   free(packet);
+  free( file_sizes );
 }
 
 void leave(int sock){

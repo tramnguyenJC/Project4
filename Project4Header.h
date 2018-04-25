@@ -6,6 +6,7 @@
 #include <unistd.h>     /* for close() */
 #include <netdb.h>
 #include <errno.h>
+#include <sys/stat.h>  // for finding file size
 
 #define SERVER_HOST "141.166.207.144"  /* wallis IP address */
 #define SERVER_PORT "35001"
