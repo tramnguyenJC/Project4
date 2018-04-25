@@ -190,10 +190,16 @@ unsigned char* getFilenamesOnServer(int sock){
   unsigned char* dataBuffer = (unsigned char*) malloc(data_len + 4);
   memset(dataBuffer, 0, data_len + 4);
   memcpy(dataBuffer, &num_files, 4);
+  int bytes_expected = data_len;
+  int bytes_received = 0;
   if(num_files != 0){
-	  if((recv(sock, &dataBuffer[4], data_len, 0)) < 0) {
-	  	printf("recv() failed or connection closed prematurely.\n");
-    	exit(1);
+  	while (bytes_received < bytes_expected){
+  		int new_bytes = recv(sock, &dataBuffer[bytes_received + 4], bytes_expected - bytes_received, 0);
+	  	if(new_bytes < 0) {
+	  		printf("recv() failed or connection closed prematurely.\n");
+    		exit(1);
+  		}
+  		bytes_received += new_bytes;
   	}
   }
   
@@ -213,7 +219,9 @@ void list(int sock){
 	memcpy(&num_files, dataBuffer, 4);
 	struct file_name files[sizeof(file_name)*num_files];
 	memcpy(&files, &dataBuffer[4], sizeof(file_name)*num_files);
-
+	
+	  
+  cout << "Num files: " << num_files << endl;
   // If the server sends no files
   if(num_files == 0){
     printf("Server has no file. \n");
@@ -375,10 +383,10 @@ void syncFiles(int sock){
   }
   if(sameHash.size() == (unsigned int)num_files) {
   	printf("No such file found.\n");
+  } else {
+  	getFiles(sock, filesToRequest);
+  	printf("\nComplete sending files to the client.\n");
   }
-
-  getFiles(sock, filesToRequest);
-  printf("\nComplete sending files to the client.\n");
   printf("\n");
 
 
@@ -397,8 +405,10 @@ void syncFiles(int sock){
   if(numFilesClientDiff == 0) {
   	printf("No such file found.\n");
   }
-  sendFiles(sock, filesToSend);
-  printf("\nComplete sending files to the server.\n");
+  else {
+  	sendFiles(sock, filesToSend);
+  	printf("\nComplete sending files to the server.\n");
+  }
   printf("\n");
 }
 
