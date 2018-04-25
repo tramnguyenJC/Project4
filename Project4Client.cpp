@@ -390,7 +390,6 @@ void syncFiles(int sock){
   printf("\n");
 }
 
-
 void getFiles(int sock, std::vector<std::string> filesToRequest) {
   int length = filesToRequest.size();
   if(length == 0) {
@@ -549,7 +548,6 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
   }
 
 }
-
 
 void sendFiles(int sock, std::vector<std::string> filesToSend){
 	int length = filesToSend.size();
