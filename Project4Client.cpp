@@ -56,7 +56,9 @@ unsigned char* getFilenamesOnServer(int sock);
 // the byte content of each file) for files that are on client but not on server
 void sendFiles(int sock, std::vector<std::string> filesToSend);
 
-
+//////////////////////////////////////////////////////////////////////////////
+// @brief: Construct a "PULL" message with a list of struct pull_file (along with
+// the byte content of each file) for files that are on server but not on client
 void getFiles(int sock, std::vector<std::string> filesToRequest);
 
 char *musicDir;									//< directory path that contains music files
@@ -146,6 +148,7 @@ int main (int argc, char *argv[]) {
   }
 }
 
+
 unsigned long ResolveName(const char name[]) {
   struct hostent *host; // Structure containing host information
   if((host = gethostbyname(name)) == NULL){
@@ -155,6 +158,7 @@ unsigned long ResolveName(const char name[]) {
   // Return the binary, network-byte-ordered address
   return *((unsigned long *) host->h_addr_list[0]);
 }
+
 
 unsigned char* getFilenamesOnServer(int sock){
 	struct header request_header;
@@ -206,12 +210,14 @@ unsigned char* getFilenamesOnServer(int sock){
   return dataBuffer;
 }
 
+
 void printInstructions(){
   printf("Enter \'list\' to list all the files the server has.\n");
   printf("Enter \'diff\' to show a \"diff\" of the files you have in comparison to the server \n");
   printf("Enter \'sync\' to sync to your device files on the server and vice versa.\n");
   printf("Enter \'bye!\' to leave the program.\n");
 }
+
 
 void list(int sock){
 	unsigned char* dataBuffer = getFilenamesOnServer(sock);
@@ -255,6 +261,7 @@ void list(int sock){
   printf("\n");
   free(dataBuffer);
 }
+
 
 void diff(int sock){
   unsigned char* dataBuffer = getFilenamesOnServer(sock);
@@ -419,6 +426,7 @@ std::unordered_map<std::string, std::vector<std::string>> getFilesOnClient(){
   return(hashToName);
 }
 
+
 void syncFiles(int sock){
 
 	unsigned char* dataBuffer = getFilenamesOnServer(sock);
@@ -430,17 +438,17 @@ void syncFiles(int sock){
   
   // Retrieve a hashmap of <hash, filename> for files on the client side
   std::unordered_map<std::string, std::vector<std::string>> filesOnClient = getFilesOnClient();
-	std::vector<std::string> sameHash;
-	std::vector<std::string> filesToSend;
-	std::vector<std::string> filesToRequest;
-	
+  std::vector<std::string> sameHash;
+  std::vector<std::string> filesToSend;
+  std::vector<std::string> filesToRequest;
+
 
   for(int i = 0; i < num_files; i++){
     struct file_name file = files[i];
     
     std::string hashStr(file.hash);
     std::unordered_map<std::string, std::vector<std::string>>::const_iterator search =
-     filesOnClient.find(hashStr);
+    filesOnClient.find(hashStr);
     if(search == filesOnClient.end()) {
     	string filenameStr(file.filename);
     	filesToRequest.push_back(filenameStr);
@@ -460,16 +468,16 @@ void syncFiles(int sock){
       if ( strncmp( file.filename, nameWithoutDir.c_str(), nameWithoutDir.length() ) != 0 )
       {
         cout << endl << "The following file(s) have the same content "
-             << "as " << file.filename << " on the server:" << endl;
+        << "as " << file.filename << " on the server:" << endl;
         for ( size_t i = 0; i < search->second.size(); ++i )
         {
           cout << "\t" << search->second[i] << endl;
         }
 
         cout << "Would you like to rename the local file(s) to match the server files? "
-             << "(if there are multiple files, all but one will be deleted.)" 
-             << " Please enter 'y' to rename and merge files, and 'n' to keep "
-             << "duplicate files. \t";
+        << "(if there are multiple files, all but one will be deleted.)" 
+        << " Please enter 'y' to rename and merge files, and 'n' to keep "
+        << "duplicate files. \t";
 
         // get user response
         char response[2];
@@ -478,66 +486,72 @@ void syncFiles(int sock){
         if ( response[0] == 'y' || response[0] == 'Y' )
         {
            // rename all matching files to the server's filename
-           for ( size_t i = 0; i < search->second.size(); ++i )
-           {
+         for ( size_t i = 0; i < search->second.size(); ++i )
+         {
              // prepend the client's directory path to the server's name
-             string name_w_path( musicDir );
-             name_w_path += "/";
-             name_w_path += file.filename;
+           string name_w_path( musicDir );
+           name_w_path += "/";
+           name_w_path += file.filename;
 
-             rename( search->second[i].c_str(), name_w_path.c_str() );
-           }
-        }
-        else
-        {
-          cout << endl << "Files were not renamed." << endl;
-        }
+           rename( search->second[i].c_str(), name_w_path.c_str() );
+         }
+       }
+       else
+       {
+        cout << endl << "Files were not renamed." << endl;
       }
-
-
-    	sameHash.push_back(search->first);
     }
+
+
+    sameHash.push_back(search->first);
   }
-
-  printf("\n");
-  printf("+ List of files server needs to send to client: \n");
-
-  if(sameHash.size() == (unsigned int)num_files) {
-  	printf("No such file found.\n");
-  } else {
-
-      for ( size_t i = 0; i < filesToRequest.size(); ++i )
-      {
-        printf( "File: %s", filesToRequest[i].c_str() );
-      }
-
-  	  getFiles(sock, filesToRequest);
-  	  printf("\nComplete sending files to the client.\n");
-  }
-  printf("\n");
-
-
-  printf("\n");
-  printf("+ List of files client needs to send to server:\n");
-  int numFilesClientDiff = 0;
-  for(auto& pair : filesOnClient){
-  	if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
-  		for(auto& name : pair.second){
-  			printf("File %s \n", name.c_str());
-  			filesToSend.push_back(name);
-  		}
-  		numFilesClientDiff++;
-  	}
-  }
-  if(numFilesClientDiff == 0) {
-  	printf("No such file found.\n");
-  }
-  else {
-  	sendFiles(sock, filesToSend);
-  	printf("\nComplete sending files to the server.\n");
-  }
-  printf("\n");
 }
+
+printf("\n");
+printf("+ List of files server needs to send to client: \n");
+
+if(sameHash.size() == (unsigned int)num_files) {
+ printf("No such file found.\n");
+} else {
+
+  for ( size_t i = 0; i < filesToRequest.size(); ++i )
+  {
+    printf( "File: %s", filesToRequest[i].c_str() );
+  }
+
+  getFiles(sock, filesToRequest);
+  printf("\nComplete sending files to the client.\n");
+}
+printf("\n");
+
+
+printf("\n");
+printf("+ List of files client needs to send to server:\n");
+
+int numFilesClientDiff = 0;
+
+for(auto& pair : filesOnClient){
+ if(std::find(sameHash.begin(), sameHash.end(), pair.first) == sameHash.end()){
+  for(auto& name : pair.second){
+   printf("File %s \n", name.c_str());
+   filesToSend.push_back(name);
+ }
+ numFilesClientDiff++;
+}
+
+}
+if(numFilesClientDiff == 0) {
+ printf("No such file found.\n");
+}
+
+else {
+ sendFiles(sock, filesToSend);
+ printf("\nComplete sending files to the server.\n");
+}
+
+printf("\n");
+}
+
 
 void getFiles(int sock, std::vector<std::string> filesToRequest) {
   int length = filesToRequest.size();
@@ -579,17 +593,17 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
   //size_t header_len = sizeof( struct header );
   unsigned char buffer[ header_len ];
 
-        // first just read in message header to check message type
+  // first just read in message header to check message type
   size_t bytes_received = 0;
   size_t bytes_expected = sizeof( struct header );
 
-        // make sure all bytes of header get read in correctly
+  // make sure all bytes of header get read in correctly
   while( bytes_received < bytes_expected )
   {
-            // read in up to the full header
+    // read in up to the full header
     int new_bytes = recv( sock, buffer, bytes_expected - bytes_received, 0 );
 
-            // if there's an error, print and exit
+    // if there's an error, print and exit
     if ( new_bytes < 0 )
     {
       fprintf( stderr, "recv() failed: %s\n", strerror( errno ) );
@@ -597,12 +611,12 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
       exit(1);
     }
 
-            // update received count based on the last call
+    // update received count based on the last call
     bytes_received += new_bytes;
   }
 
 
-        // copy header into struct for parsing
+  // copy header into struct for parsing
   struct header respond_header;
   memcpy( &respond_header, buffer, header_len );
 
@@ -614,18 +628,18 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
   {
     struct push_file prefix;
 
-        // read in file prefix that contains name and size
+    // read in file prefix that contains name and size
 
     size_t bytes_received = 0;
     size_t bytes_expected = sizeof( struct push_file );
 
-        // make sure all bytes get received correctly
-        // get all bytes into temporary buffer first
+    // make sure all bytes get received correctly
+    // get all bytes into temporary buffer first
     unsigned char buffer[ sizeof( struct push_file ) ];
 
     while( bytes_received < bytes_expected )
     {
-            // get up to the entire packet
+      // get up to the entire packet
       ssize_t new_bytes = recv( sock, &buffer[ bytes_received ], bytes_expected - bytes_received, 0 );
 
       if ( new_bytes < 0 )
@@ -635,37 +649,37 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
         exit(1);
       }
 
-            // update based on the number of bytes read in
+      // update based on the number of bytes read in
       bytes_received += new_bytes;
     }
 
-        // once the entire struct has been received, copy into prefix
+    // once the entire struct has been received, copy into prefix
     memcpy( &prefix, buffer, sizeof( struct push_file ) );
 
 
     printf("Saving file: %s...", prefix.name);
 
-        // read in contents of file
+    // read in contents of file
 
     bytes_received = 0;
     bytes_expected = prefix.size;
 
     unsigned char* file = (unsigned char*) malloc(prefix.size);
 
-        // read in bytes until the entire file has been received
+    // read in bytes until the entire file has been received
     while ( bytes_received < bytes_expected )
     {
-            // read in more data, up to the amount remaining in the file
+      // read in more data, up to the amount remaining in the file
       ssize_t new_bytes = recv( sock, &file[ bytes_received ], bytes_expected - bytes_received, 0 );
 
-            // the loop will continue until all bytes of the file have been read in (but no more)
+      // the loop will continue until all bytes of the file have been read in (but no more)
       bytes_received += new_bytes;
 
     }
 
-        // create file using filename
-        // adding .part suffix at first
-        // to avoid including incomplete files in a LIST request
+    // create file using filename
+    // adding .part suffix at first
+    // to avoid including incomplete files in a LIST request
 
     size_t file_name_len = strlen(prefix.name) + strlen(musicDir) - 1;
     char nameWithDir[ file_name_len + 6];
@@ -680,7 +694,7 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
     // create file
     FILE* new_file = fopen( nameWithDir, "w" );
 
-        // write bytes to file
+    // write bytes to file
     fwrite( file, sizeof(char), prefix.size, new_file );
     fclose( new_file );
 
@@ -688,7 +702,7 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
     strncpy(newName, nameWithDir, file_name_len);
     newName[file_name_len] = '\0';
     
-        // rename to remove .part once the entire file is written
+    // rename to remove .part once the entire file is written
     rename( nameWithDir, newName);
 
     printf( "complete\n" );
@@ -696,9 +710,11 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
     free(file);
   }
 
+  // prints a fun message
   cout << "\n" << "                 ________________\n                |                |_____    __\n                | Files arrived! |     |__|  |_________\n                |________________|     |::|  |        /\n   /\\**/\\       |                \\.____|::|__|      <\n  ( o_o  )_     |                      \\::/  \\._______\\\n   (u--u   \\_)  |\n    (||___   )==\\\n  ,dP\"/b/=( /P\"/b\\\n  |8 || 8\\=== || 8\n  `b,  ,P  `b,  ,P\n    \"\"\"`     \"\"\"`" << endl;
 
 }
+
 
 void sendFiles(int sock, std::vector<std::string> filesToSend){
 	int length = filesToSend.size();
@@ -798,10 +814,12 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
   free(packet);
   free( file_sizes );
 
+  // prints a fun message
   cout << "\n" << "       ___\n      (  /\n      / |\n     /  \\ \n    |   \\\\ \n    |   |\\\\            //\\\\    /\\_     //\\     /\\_ \n     \\\\\\\\ |           // _____/  _/   // _____/  _/\n      \\\\\\\\|____       |     |   /     |     |   /\n      ////|    | ==== ( ==__|==/ ==== ( ==__|==/\n     //// |    |       \\ \\   \\ \\       \\ \\   \\ \\ \n=================/     / /    \\ \\      / /    \\ \\ \n" << endl;
   cout << "Delivering your files!" << endl;
 
 }
+
 
 void leave(int sock){
 
