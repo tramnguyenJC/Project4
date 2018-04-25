@@ -299,7 +299,6 @@ char** send_files( int client_sock, int length )
         memcpy( &files[i], buffer, sizeof( struct file_name ) );
     }
 
-
     // struct for each file
     struct push_file file_sizes[ length ];
 
@@ -315,6 +314,7 @@ char** send_files( int client_sock, int length )
         // get the size of this file (in bytes)
         struct stat file_size;
         int success = stat( files[file_found_count].filename, &file_size );
+
 
         unsigned int size = file_size.st_size;
 
@@ -368,24 +368,22 @@ char** send_files( int client_sock, int length )
         // copy file information first
         memcpy( &packet[ current_index ], &file_sizes[i], sizeof( struct push_file ) );
 
-
         current_index += sizeof( struct push_file );
 
         // then read in contents of file
         FILE* file = fopen( file_sizes[i].name, "r" );
 
-        unsigned char buffer[ file_sizes[i].size ];
+        unsigned char* buffer = (unsigned char*) malloc(file_sizes[i].size ) ;
 
         fread( buffer, 1, file_sizes[i].size, file );
 
         fclose( file );
 
-
         // copy contents of file to message
         memcpy( &packet[ current_index ], buffer, file_sizes[i].size );
         current_index += file_sizes[i].size;
+        free(buffer);
     }
-
 
 
     // send message to client

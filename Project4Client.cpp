@@ -56,6 +56,9 @@ unsigned char* getFilenamesOnServer(int sock);
 // the byte content of each file) for files that are on client but not on server
 void sendFiles(int sock, std::vector<std::string> filesToSend);
 
+
+void getFiles(int sock, std::vector<std::string> filesToRequest);
+
 char *musicDir;									//< directory path that contains music files
 
 int main (int argc, char *argv[]) {
@@ -362,7 +365,12 @@ void syncFiles(int sock){
   }
   if(sameHash.size() == (unsigned int)num_files)
   	printf("No such file found.\n");
-  
+
+  getFiles(sock, filesToRequest);
+  printf("\nComplete sending files to the client.\n");
+  printf("\n");
+
+
   printf("\n");
   printf("+ List of files client needs to send to server:\n");
   int numFilesClientDiff = 0;
@@ -381,6 +389,173 @@ void syncFiles(int sock){
   printf("\nComplete sending files to the server.\n");
   printf("\n");
 }
+
+
+
+
+
+void getFiles(int sock, std::vector<std::string> filesToRequest) {
+  int length = filesToRequest.size();
+  if(length == 0) {
+    return;
+  }
+  // struct for each file
+
+  size_t header_len = sizeof(struct header);
+  size_t data_len = length*(sizeof(struct file_name));
+  size_t packet_size = header_len + data_len;
+
+  unsigned char* packet = (unsigned char*)malloc(packet_size);
+  memset( packet, 0, packet_size );
+  
+  // create header and copy to message
+  struct header pull_header;
+  memcpy( pull_header.type, "PULL", 4 );
+  
+  pull_header.length = length;
+  memcpy( packet, &pull_header, sizeof( struct header ) );
+
+  int current_index = sizeof( struct header );
+
+
+  for(int i = 0; i < length; i++) {
+    memcpy( &packet[ current_index ], filesToRequest[i].c_str(), sizeof( struct file_name ) );
+    current_index += sizeof( struct file_name );
+  }
+
+  // send message to server
+  if(send(sock, packet, packet_size, 0 ) != packet_size ){
+    fprintf( stderr, "send() failed\n" );
+    close(sock);
+    exit(1);
+  }
+  free(packet);
+
+  //size_t header_len = sizeof( struct header );
+  unsigned char buffer[ header_len ];
+
+        // first just read in message header to check message type
+  size_t bytes_received = 0;
+  size_t bytes_expected = sizeof( struct header );
+
+        // make sure all bytes of header get read in correctly
+  while( bytes_received < bytes_expected )
+  {
+            // read in up to the full header
+    int new_bytes = recv( sock, buffer, bytes_expected - bytes_received, 0 );
+
+            // if there's an error, print and exit
+    if ( new_bytes < 0 )
+    {
+      fprintf( stderr, "recv() failed: %s\n", strerror( errno ) );
+      close( sock );
+      exit(1);
+    }
+
+            // update received count based on the last call
+    bytes_received += new_bytes;
+  }
+
+
+        // copy header into struct for parsing
+  struct header respond_header;
+  memcpy( &respond_header, buffer, header_len );
+
+  int i;
+  length = respond_header.length;
+
+  for ( i = 0; i < length; ++i )
+  {
+    struct push_file prefix;
+
+        // read in file prefix that contains name and size
+
+    size_t bytes_received = 0;
+    size_t bytes_expected = sizeof( struct push_file );
+
+        // make sure all bytes get received correctly
+        // get all bytes into temporary buffer first
+    unsigned char buffer[ sizeof( struct push_file ) ];
+
+    while( bytes_received < bytes_expected )
+    {
+            // get up to the entire packet
+      ssize_t new_bytes = recv( sock, &buffer[ bytes_received ], bytes_expected - bytes_received, 0 );
+
+      if ( new_bytes < 0 )
+      {
+        fprintf( stderr, "recv() failed\n" );
+        close( sock );
+        exit(1);
+      }
+
+            // update based on the number of bytes read in
+      bytes_received += new_bytes;
+    }
+
+        // once the entire struct has been received, copy into prefix
+    memcpy( &prefix, buffer, sizeof( struct push_file ) );
+
+
+    printf("Saving file: %s...", prefix.name);
+
+        // read in contents of file
+
+    bytes_received = 0;
+    bytes_expected = prefix.size;
+
+    unsigned char* file = (unsigned char*) malloc(prefix.size);
+
+        // read in bytes until the entire file has been received
+    while ( bytes_received < bytes_expected )
+    {
+            // read in more data, up to the amount remaining in the file
+      ssize_t new_bytes = recv( sock, &file[ bytes_received ], bytes_expected - bytes_received, 0 );
+
+            // the loop will continue until all bytes of the file have been read in (but no more)
+      bytes_received += new_bytes;
+
+    }
+
+        // create file using filename
+        // adding .part suffix at first
+        // to avoid including incomplete files in a LIST request
+
+    size_t file_name_len = strlen(prefix.name) + strlen(musicDir) - 1;
+    char nameWithDir[ file_name_len + 6];
+    const char slash[1] = {'/'};
+    memcpy(nameWithDir, &musicDir[2], strlen(musicDir)-2);
+    memcpy(&nameWithDir[strlen(musicDir)-2], slash, strlen(slash));
+    memcpy(&nameWithDir[strlen(musicDir)-1], prefix.name, strlen(prefix.name));
+
+    strncpy( &nameWithDir[file_name_len], ".part", 5);
+    nameWithDir[file_name_len + 5] = '\0';
+
+    // create file
+    FILE* new_file = fopen( nameWithDir, "w" );
+
+        // write bytes to file
+    fwrite( file, sizeof(char), prefix.size, new_file );
+    fclose( new_file );
+
+    char newName[file_name_len + 1];
+    strncpy(newName, nameWithDir, file_name_len);
+    newName[file_name_len] = '\0';
+    
+        // rename to remove .part once the entire file is written
+    rename( nameWithDir, newName);
+
+    printf( "complete\n" );
+
+    free(file);
+  }
+
+}
+
+
+
+
+
 
 void sendFiles(int sock, std::vector<std::string> filesToSend){
 	int length = filesToSend.size();
