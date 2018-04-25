@@ -569,6 +569,8 @@ void getFiles(int sock, std::vector<std::string> filesToRequest) {
     free(file);
   }
 
+  cout << "\n" << "                 ________________\n                |                |_____    __\n                | Files arrived! |     |__|  |_________\n                |________________|     |::|  |        /\n   /\\**/\\       |                \\.____|::|__|      <\n  ( o_o  )_     |                      \\::/  \\._______\\\n   (u--u   \\_)  |\n    (||___   )==\\\n  ,dP\"/b/=( /P\"/b\\\n  |8 || 8\\=== || 8\n  `b,  ,P  `b,  ,P\n    \"\"\"`     \"\"\"`" << endl;
+
 }
 
 void sendFiles(int sock, std::vector<std::string> filesToSend){
@@ -668,6 +670,10 @@ void sendFiles(int sock, std::vector<std::string> filesToSend){
 
   free(packet);
   free( file_sizes );
+
+  cout << "\n" << "       ___\n      (  /\n      / |\n     /  \\ \n    |   \\\\ \n    |   |\\\\            //\\\\    /\\_     //\\     /\\_ \n     \\\\\\\\ |           // _____/  _/   // _____/  _/\n      \\\\\\\\|____       |     |   /     |     |   /\n      ////|    | ==== ( ==__|==/ ==== ( ==__|==/\n     //// |    |       \\ \\   \\ \\       \\ \\   \\ \\ \n=================/     / /    \\ \\      / /    \\ \\ \n" << endl;
+  cout << "Delivering your files!" << endl;
+
 }
 
 void leave(int sock){
